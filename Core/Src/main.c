@@ -22,6 +22,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "servos.h"
+#include "UARTRX.h"
+#include <stdio.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -68,7 +72,7 @@ static void MX_TIM3_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+void procesa_rx(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -117,13 +121,26 @@ int main(void)
   MX_ADC1_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+// Inicializa la señal PWM en el pin PB0 (SERVO_CAMARA)
+SERVO_init(&SERVO1);
+SERVO_ANG(&SERVO1, 0.0f); // Posiciona inicialmente la cámara al centro (0°)
+uartRX_it_idle_dma_init(&UARTRX1);
 
+// Inicializa la recepción por DMA usando la librería UARTRX
+uartRX_it_idle_dma_init(&UARTRX1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    // Verifica si el módulo DMA/UART capturó una trama completa desde Tierra
+    if (UARTRX1.flag_rx == 1)
+    {
+        procesa_rx();                 // Lee el ángulo y mueve el SERVO_CAMARA (PA6)
+        uartRX_DMA_Re_init(&UARTRX1); // Reinicia la escucha por DMA para la siguiente trama
+    }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -398,10 +415,12 @@ static void MX_TIM3_Init(void)
   {
     Error_Handler();
   }
+  sConfigOC.Pulse = 1500;
   if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
   {
     Error_Handler();
   }
+  sConfigOC.Pulse = 0;
   if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
