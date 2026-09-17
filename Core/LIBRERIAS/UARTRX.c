@@ -26,19 +26,6 @@
 #include "trama_usv.h"
 #include "TELEMETRIA_USV.h"
 
-/*
- * PRUEBA DE INTEGRACION ESTACION -> BOTE -> SERVO.
- *
- * 1 = una trama $PUSVU valida aplica UNICAMENTE el campo camara al MG996R.
- *     Bomba, luces y propulsion se ignoran durante esta prueba.
- *     Esto permite validar el joystick de tierra y el servo sin que otros
- *     perifericos puedan interferir.
- *
- * 0 = funcionamiento completo normal del comando $PUSVU.
- */
-#define PRUEBA_INTEGRACION_CAMARA_TIERRA  1
-
-
 /* ---------------------------------------------------------------
  * VARIABLES EXTERNAS
  * ---------------------------------------------------------------
@@ -166,14 +153,6 @@ static void USV_Aplicar_Comando(
     SERVO_ANG(
         &SERVO1,
         angulo_recibido);
-
-#if PRUEBA_INTEGRACION_CAMARA_TIERRA
-    /*
-     * Para esta prueba no se ejecuta ninguna otra orden recibida desde tierra.
-     * Solo se valida: joystick -> UART -> $PUSVU -> servo de camara.
-     */
-    return;
-#endif
 
 
     /* -----------------------------------------------------------
@@ -456,11 +435,9 @@ void procesa_rx(void)
             angulo_recibido = 90.0f;
         }
 
-#if (SERVO_PRUEBA_LOCAL_BOTE == 0)
         SERVO_ANG(
             &SERVO1,
             angulo_recibido);
-#endif
     }
 
     /* PP2 - trama completa oficial $PUSVU,...*HH\r\n */
