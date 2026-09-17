@@ -126,6 +126,11 @@ if (UARTRX1.flag_rx==1)
 
 */
 
+/* Diagnostico temporal de la comunicacion ESTACION -> BOTE. */
+extern volatile uint32_t usv_rx_eventos;
+extern volatile uint32_t usv_tramas_validas;
+extern volatile int16_t usv_camara_recibida;
+
 void uartRX_it_idle_dma_init(UARTRXS *SERIAL);
 void uartRX_DMA_Re_init(UARTRXS *SERIAL);
 void uartRX_INTERRUPT(UART_HandleTypeDef *huart,uint16_t sizex);
