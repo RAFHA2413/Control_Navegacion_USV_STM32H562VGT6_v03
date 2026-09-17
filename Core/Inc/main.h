@@ -96,6 +96,10 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 
+/* LED de prueba de enlace con la estacion de tierra. */
+#define LED_RX_TIERRA_Pin GPIO_PIN_2
+#define LED_RX_TIERRA_GPIO_Port GPIOB
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
