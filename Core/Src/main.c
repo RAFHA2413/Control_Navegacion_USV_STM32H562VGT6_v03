@@ -39,18 +39,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-/*
- * PRUEBA DE INTEGRACION ESTACION -> BOTE -> SERVO.
- *
- * Durante esta prueba:
- * - USART1 recibe $PUSVU desde el micro de tierra.
- * - Solo el campo camara gobierna el MG996R.
- * - USART6 mantiene IMU + diagnostico en Teleplot.
- * - Se suspende temporalmente $PUSVD por USART1 para dejar el enlace
- *   de prueba exclusivamente en sentido tierra -> bote.
- */
-#define PRUEBA_INTEGRACION_CAMARA_TIERRA  1
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -93,7 +81,6 @@ volatile uint8_t imu_raw_ok = 0U;
 volatile uint8_t imu_raw_channel = 0U;
 volatile uint8_t imu_raw_report = 0U;
 volatile uint16_t imu_raw_length = 0U;
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -241,7 +228,6 @@ TELEMETRIA_USV_init(&TELEMETRIA1);
 // Inicializa BNO085
 imu_ok = IMU_Init();
 imu_addr = IMU_GetAddress7bit();
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -314,10 +300,8 @@ imu_addr = IMU_GetAddress7bit();
         uartRX_DMA_Re_init(&UARTRX1); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
     }
 
-    /* Envia $PUSVD hacia tierra cada 500 ms en funcionamiento normal. */
-#if (PRUEBA_INTEGRACION_CAMARA_TIERRA == 0)
+    /* Envia $PUSVD hacia tierra cada 500 ms. */
     TELEMETRIA_USV_Tarea(&TELEMETRIA1);
-#endif
 
     /* USER CODE END WHILE */
 
