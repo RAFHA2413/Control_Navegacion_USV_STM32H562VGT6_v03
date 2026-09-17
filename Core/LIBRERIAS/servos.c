@@ -14,16 +14,20 @@ extern TIM_HandleTypeDef htim3;
 
 
 /*
- * PRUEBA TEMPORAL DEL SERVO DE CAMARA
+ * PRUEBA TEMPORAL CONTINUA DEL SERVO DE CAMARA
  *
- * 1 = al reiniciar el STM32 ejecuta automaticamente:
- *     0 -> +90 -> 0 -> -90 -> 0 grados.
+ * Al iniciar el STM32, el servo se centra y luego conmuta
+ * indefinidamente entre -90 y +90 grados.
  *
- * 0 = funcionamiento normal sin prueba automatica.
+ * Con la configuracion actual de TIM3 (1 us por cuenta):
+ *   -90 grados = 1000 us
+ *     0 grados = 1500 us
+ *   +90 grados = 2000 us
  *
- * Cuando terminemos de validar el servo, cambiar a 0.
+ * Esta prueba es temporal. Al finalizar la validacion del servo,
+ * se debe volver a SERVO_init() normal para permitir que el resto
+ * del firmware continue su inicializacion.
  */
-#define SERVO_PRUEBA_AUTOMATICA  1
 #define SERVO_PRUEBA_RETARDO_MS  1500U
 
 
@@ -38,31 +42,27 @@ void SERVO_init(SERVOS *servo)
 {
     HAL_TIM_PWM_Start(servo->htim, servo->channel);
 
-#if SERVO_PRUEBA_AUTOMATICA
     /*
-     * Secuencia aislada para verificar:
-     * TIM3_CH3 -> PB0 -> señal del servo de camara.
-     *
-     * Con TIM3 a 1 us por cuenta se esperan aproximadamente:
-     *   0 grados   = 1500 us
-     *  +90 grados  = 2000 us
-     *  -90 grados  = 1000 us
+     * Primero lleva el servo al centro.
      */
     SERVO_ANG(servo, 0.0f);
     HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
 
-    SERVO_ANG(servo, 90.0f);
-    HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
+    /*
+     * PRUEBA INFINITA:
+     * -90 grados -> +90 grados -> -90 grados -> ...
+     *
+     * El salto completo entre ambos extremos permite verificar
+     * el recorrido total del servo con pulsos de 1000 a 2000 us.
+     */
+    while (1)
+    {
+        SERVO_ANG(servo, -90.0f);
+        HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
 
-    SERVO_ANG(servo, 0.0f);
-    HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
-
-    SERVO_ANG(servo, -90.0f);
-    HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
-
-    SERVO_ANG(servo, 0.0f);
-    HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
-#endif
+        SERVO_ANG(servo, 90.0f);
+        HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
+    }
 }
 
 
