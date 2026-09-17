@@ -26,6 +26,15 @@
 #include "trama_usv.h"
 #include "TELEMETRIA_USV.h"
 
+/*
+ * PRUEBA TEMPORAL SOLO EN EL MICRO DEL BOTE.
+ * 1 = las tramas se siguen recibiendo y diagnosticando, pero NO gobiernan
+ *     el servo de camara. El main mueve el MG996R localmente para comprobar
+ *     servo + alimentacion + Teleplot sin modificar el micro de tierra.
+ * 0 = funcionamiento normal: la camara recibida por $PUSVU gobierna el servo.
+ */
+#define SERVO_PRUEBA_LOCAL_BOTE  1
+
 /* ---------------------------------------------------------------
  * VARIABLES EXTERNAS
  * ---------------------------------------------------------------
@@ -150,9 +159,11 @@ static void USV_Aplicar_Comando(
         angulo_recibido = 90.0f;
     }
 
+#if (SERVO_PRUEBA_LOCAL_BOTE == 0)
     SERVO_ANG(
         &SERVO1,
         angulo_recibido);
+#endif
 
 
     /* -----------------------------------------------------------
@@ -435,9 +446,11 @@ void procesa_rx(void)
             angulo_recibido = 90.0f;
         }
 
+#if (SERVO_PRUEBA_LOCAL_BOTE == 0)
         SERVO_ANG(
             &SERVO1,
             angulo_recibido);
+#endif
     }
 
     /* PP2 - trama completa oficial $PUSVU,...*HH\r\n */
