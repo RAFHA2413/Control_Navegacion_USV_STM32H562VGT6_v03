@@ -9,8 +9,7 @@
  * - Trama corta de prueba $ANG,xx.x
  * - Trama completa $PUSVU
  * - Decodificacion mediante trama_usv
- * - Control de servo de camara
- * - Control de DO1-DO4 y bomba de achique
+ * - Distribucion de ordenes a los perifericos del bote
  */
 
 #ifndef LIBRERIAS_UARTRX1_C_
@@ -24,9 +23,8 @@
 #include <stdint.h>
 
 #include "servos.h"
-
-/* Libreria oficial de trama USV */
 #include "trama_usv.h"
+#include "TELEMETRIA_USV.h"
 
 /* ---------------------------------------------------------------
  * VARIABLES EXTERNAS
@@ -44,12 +42,6 @@ extern UART_HandleTypeDef huart1;
  * ---------------------------------------------------------------
  */
 
-/*
- * Se conserva la estructura definida por el profesor.
- *
- * Se utiliza USV_TRAMA_MAXIMA = 256 bytes para que el buffer
- * sea compatible con la libreria trama_usv.
- */
 UARTRXS UARTRX1 =
 {
     &huart1,
@@ -63,38 +55,23 @@ UARTRXS UARTRX1 =
  * ---------------------------------------------------------------
  */
 
-/*
- * Ultimo comando completo recibido desde tierra.
- */
+/* Ultimo comando completo recibido desde tierra. */
 USV_Comando comando_rx;
 
-
-/*
- * Indica que se recibio correctamente al menos una trama PUSVU.
- *
- * 0 = no
- * 1 = si
- */
+/* 1 cuando se recibio correctamente al menos una trama $PUSVU. */
 volatile uint8_t comando_usv_valido = 0U;
 
-
-/*
- * Orden de luces.
- *
- * Se conserva hasta definir fisicamente que salida de la tarjeta
- * manejara las luces de navegacion.
- */
+/* Se conserva hasta asignar fisicamente la salida de luces. */
 volatile uint8_t orden_luces = 0U;
 
-
 /*
- * Valores de potencia recibidos.
- *
- * Se almacenan, pero todavia no se asignan a un PWM fisico
- * hasta confirmar los canales definitivos de propulsion.
+ * Potencias finales recibidas desde tierra, en porcentaje entero 0..100.
+ * PB4/TIM3_CH1 corresponde a babor y PB1/TIM3_CH4 a estribor, pero todavia
+ * no se escribe PWM fisico hasta confirmar el tipo de señal requerido por
+ * los controladores de propulsion.
  */
-volatile uint16_t potencia_babor_x10 = 0U;
-volatile uint16_t potencia_estribor_x10 = 0U;
+volatile uint16_t potencia_babor = 0U;
+volatile uint16_t potencia_estribor = 0U;
 
 
 /* ---------------------------------------------------------------
@@ -103,13 +80,13 @@ volatile uint16_t potencia_estribor_x10 = 0U;
  */
 
 /**
- * @brief Lleva las salidas actualmente controladas a estado seguro.
+ * @brief Lleva solamente la propulsion a estado seguro.
+ *
+ * La trama vigente indica que la parada tiene prioridad sobre la propulsion.
+ * La camara, la bomba y las luces permanecen disponibles.
  */
-static void USV_Parada_Segura(void)
+static void USV_Parada_Propulsion(void)
 {
-    /*
-     * Se desactivan las cuatro salidas digitales.
-     */
     HAL_GPIO_WritePin(
         DO1_PB12_GPIO_Port,
         DO1_PB12_Pin,
@@ -130,70 +107,33 @@ static void USV_Parada_Segura(void)
         DO4_PB15_Pin,
         GPIO_PIN_RESET);
 
-
-    /*
-     * Bomba de achique apagada.
-     */
-    HAL_GPIO_WritePin(
-        ACHIQUE_CTRL_GPIO_Port,
-        ACHIQUE_CTRL_Pin,
-        GPIO_PIN_RESET);
-
-
-    /*
-     * Potencia solicitada llevada a cero.
-     */
-    potencia_babor_x10 = 0U;
-    potencia_estribor_x10 = 0U;
-
-
-    /*
-     * Camara centrada.
-     */
-    SERVO_ANG(&SERVO1, 0.0f);
+    potencia_babor = 0U;
+    potencia_estribor = 0U;
 }
 
 
 /**
- * @brief Aplica al bote una trama PUSVU ya verificada.
+ * @brief Aplica al bote una trama $PUSVU ya verificada.
  */
 static void USV_Aplicar_Comando(
         const USV_Comando *comando)
 {
     float angulo_recibido;
+    uint8_t modo_telemetria;
 
     if (comando == NULL)
     {
         return;
     }
 
-
-    /*
-     * STOP y FAULT tienen prioridad absoluta.
-     */
-    if ((comando->parada != 0U) ||
-        (comando->falla_direccion != 0U))
-    {
-        USV_Parada_Segura();
-        return;
-    }
-
-
     /* -----------------------------------------------------------
      * SERVO DE CAMARA
      * -----------------------------------------------------------
-     *
-     * La trama transmite el angulo x10.
-     *
-     * Ejemplo:
-     *
-     * -450 = -45.0 grados
-     *    0 =   0.0 grados
-     * +900 = +90.0 grados
+     * La trama vigente entrega grados enteros directamente:
+     * -90 .. 0 .. +90.
      */
     angulo_recibido =
-        ((float)comando->camara_x10) / 10.0f;
-
+        (float)comando->camara;
 
     if (angulo_recibido < -90.0f)
     {
@@ -205,61 +145,15 @@ static void USV_Aplicar_Comando(
         angulo_recibido = 90.0f;
     }
 
-
     SERVO_ANG(
         &SERVO1,
         angulo_recibido);
 
 
     /* -----------------------------------------------------------
-     * DIRECCION MOTORES
-     * -----------------------------------------------------------
-     *
-     * Mapeo utilizado actualmente:
-     *
-     * DO1 = babor avante
-     * DO2 = babor atras
-     * DO3 = estribor avante
-     * DO4 = estribor atras
-     */
-
-    HAL_GPIO_WritePin(
-        DO1_PB12_GPIO_Port,
-        DO1_PB12_Pin,
-        (comando->babor_avante != 0U) ?
-        GPIO_PIN_SET :
-        GPIO_PIN_RESET);
-
-
-    HAL_GPIO_WritePin(
-        DO2_PB13_GPIO_Port,
-        DO2_PB13_Pin,
-        (comando->babor_atras != 0U) ?
-        GPIO_PIN_SET :
-        GPIO_PIN_RESET);
-
-
-    HAL_GPIO_WritePin(
-        DO3_PB14_GPIO_Port,
-        DO3_PB14_Pin,
-        (comando->estribor_avante != 0U) ?
-        GPIO_PIN_SET :
-        GPIO_PIN_RESET);
-
-
-    HAL_GPIO_WritePin(
-        DO4_PB15_GPIO_Port,
-        DO4_PB15_Pin,
-        (comando->estribor_atras != 0U) ?
-        GPIO_PIN_SET :
-        GPIO_PIN_RESET);
-
-
-    /* -----------------------------------------------------------
      * BOMBA DE ACHIQUE
      * -----------------------------------------------------------
      */
-
     HAL_GPIO_WritePin(
         ACHIQUE_CTRL_GPIO_Port,
         ACHIQUE_CTRL_Pin,
@@ -271,28 +165,94 @@ static void USV_Aplicar_Comando(
     /* -----------------------------------------------------------
      * LUCES
      * -----------------------------------------------------------
-     *
-     * Todavia no se asigna a un GPIO porque falta confirmar
-     * fisicamente la salida destinada a luces.
+     * Todavia no existe GPIO definitivo para luces.
      */
     orden_luces =
         comando->luces;
 
 
     /* -----------------------------------------------------------
+     * ESTADO PARA TELEMETRIA
+     * -----------------------------------------------------------
+     * Trama $PUSVD:
+     * 0 = reposo, 1 = remoto, 2 = reconectar.
+     */
+    if (comando->reconexion != 0U)
+    {
+        modo_telemetria = 2U;
+    }
+    else
+    {
+        modo_telemetria = 1U;
+    }
+
+    TELEMETRIA_USV_ESTADO(
+        &TELEMETRIA1,
+        orden_luces,
+        modo_telemetria);
+
+
+    /* -----------------------------------------------------------
+     * SEGURIDAD DE PROPULSION
+     * -----------------------------------------------------------
+     * STOP y FAULT tienen prioridad sobre las salidas de movimiento.
+     * La camara, bomba y luces ya fueron atendidas arriba.
+     */
+    if ((comando->parada != 0U) ||
+        (comando->falla_direccion != 0U))
+    {
+        USV_Parada_Propulsion();
+        return;
+    }
+
+
+    /* -----------------------------------------------------------
+     * DIRECCION MOTORES
+     * -----------------------------------------------------------
+     * DO1 = babor avante
+     * DO2 = babor atras
+     * DO3 = estribor avante
+     * DO4 = estribor atras
+     */
+    HAL_GPIO_WritePin(
+        DO1_PB12_GPIO_Port,
+        DO1_PB12_Pin,
+        (comando->babor_avante != 0U) ?
+        GPIO_PIN_SET : GPIO_PIN_RESET);
+
+    HAL_GPIO_WritePin(
+        DO2_PB13_GPIO_Port,
+        DO2_PB13_Pin,
+        (comando->babor_atras != 0U) ?
+        GPIO_PIN_SET : GPIO_PIN_RESET);
+
+    HAL_GPIO_WritePin(
+        DO3_PB14_GPIO_Port,
+        DO3_PB14_Pin,
+        (comando->estribor_avante != 0U) ?
+        GPIO_PIN_SET : GPIO_PIN_RESET);
+
+    HAL_GPIO_WritePin(
+        DO4_PB15_GPIO_Port,
+        DO4_PB15_Pin,
+        (comando->estribor_atras != 0U) ?
+        GPIO_PIN_SET : GPIO_PIN_RESET);
+
+
+    /* -----------------------------------------------------------
      * POTENCIA DE PROPULSION
      * -----------------------------------------------------------
+     * La estacion de tierra ya hizo la mezcla. El bote NO vuelve
+     * a calcularla usando potencia_global o direccion.
      *
-     * Se conservan los valores recibidos.
-     *
-     * Todavia no se escriben directamente sobre TIM3_CH1 o CH4
-     * hasta confirmar los canales PWM definitivos.
+     * Se guardan porcentajes finales 0..100. La salida PWM fisica
+     * se habilitara cuando se confirme el tipo de señal del driver/ESC.
      */
-    potencia_babor_x10 =
-        comando->potencia_babor_x10;
+    potencia_babor =
+        comando->potencia_babor;
 
-    potencia_estribor_x10 =
-        comando->potencia_estribor_x10;
+    potencia_estribor =
+        comando->potencia_estribor;
 }
 
 
@@ -301,15 +261,6 @@ static void USV_Aplicar_Comando(
  * ===============================================================
  */
 
-
-/**
- * @brief Se llama una sola vez para crear el buffer de recepcion.
- *
- * @note
- * Se mantiene el nombre utilizado por el profesor.
- * En esta version se usa ReceiveToIdle por INTERRUPCION,
- * no DMA.
- */
 void uartRX_it_idle_dma_init(
         UARTRXS *SERIAL)
 {
@@ -318,50 +269,28 @@ void uartRX_it_idle_dma_init(
         return;
     }
 
-
-    /*
-     * Reserva memoria para la trama.
-     */
     SERIAL->trama_rx =
         malloc(SERIAL->sizeT);
-
 
     if (SERIAL->trama_rx == NULL)
     {
         return;
     }
 
-
-    /*
-     * Limpia completamente el buffer.
-     */
     memset(
         SERIAL->trama_rx,
         0,
         SERIAL->sizeT);
 
-
     SERIAL->flag_rx = 0;
     SERIAL->num_datos = 0;
 
-
-    /*
-     * Limpia errores UART.
-     */
     __HAL_UART_CLEAR_OREFLAG(
         SERIAL->huart);
 
     __HAL_UART_FLUSH_DRREGISTER(
         SERIAL->huart);
 
-
-    /*
-     * Inicia recepcion hasta evento IDLE.
-     *
-     * IMPORTANTE:
-     * Se utiliza IT porque actualmente el proyecto no tiene
-     * DMA configurado para USART1.
-     */
     HAL_UARTEx_ReceiveToIdle_IT(
         SERIAL->huart,
         (uint8_t *)SERIAL->trama_rx,
@@ -369,13 +298,6 @@ void uartRX_it_idle_dma_init(
 }
 
 
-/**
- * @brief Reinicia la recepcion UART.
- *
- * @note
- * Se conserva el nombre original por compatibilidad
- * con la libreria del profesor.
- */
 void uartRX_DMA_Re_init(
         UARTRXS *SERIAL)
 {
@@ -385,23 +307,19 @@ void uartRX_DMA_Re_init(
         return;
     }
 
-
     memset(
         SERIAL->trama_rx,
         0,
         SERIAL->sizeT);
 
-
     SERIAL->flag_rx = 0;
     SERIAL->num_datos = 0;
-
 
     __HAL_UART_CLEAR_OREFLAG(
         SERIAL->huart);
 
     __HAL_UART_FLUSH_DRREGISTER(
         SERIAL->huart);
-
 
     HAL_UARTEx_ReceiveToIdle_IT(
         SERIAL->huart,
@@ -415,10 +333,6 @@ void uartRX_DMA_Re_init(
  * ===============================================================
  */
 
-
-/**
- * @brief Procesa el evento Receive To Idle de las UART.
- */
 void uartRX_INTERRUPT(
         UART_HandleTypeDef *huart,
         uint16_t sizex)
@@ -428,42 +342,21 @@ void uartRX_INTERRUPT(
         return;
     }
 
-
-    /*
-     * USART1 / XBee
-     */
     if ((UARTRX1.flag_rx == 0) &&
-        (huart->Instance ==
-         UARTRX1.usart_instance))
+        (huart->Instance == UARTRX1.usart_instance))
     {
-        /*
-         * Evita escribir fuera del buffer.
-         */
         if (sizex >= UARTRX1.sizeT)
         {
             sizex =
                 UARTRX1.sizeT - 1U;
         }
 
-
         UARTRX1.num_datos =
             sizex;
 
-
-        /*
-         * IMPORTANTE:
-         *
-         * USV_LeerComando() trabaja con cadenas C.
-         * Por eso la trama debe terminar en '\0'.
-         */
         UARTRX1.trama_rx[sizex] =
             '\0';
 
-
-        /*
-         * Se avisa al main que existe una trama
-         * pendiente de procesar.
-         */
         UARTRX1.flag_rx = 1;
     }
 }
@@ -474,7 +367,6 @@ void uartRX_INTERRUPT(
  * ===============================================================
  */
 
-
 void uartRX_Errores(
         UART_HandleTypeDef *huart)
 {
@@ -482,7 +374,6 @@ void uartRX_Errores(
     {
         return;
     }
-
 
     if (huart->Instance ==
         UARTRX1.usart_instance)
@@ -493,16 +384,10 @@ void uartRX_Errores(
         __HAL_UART_FLUSH_DRREGISTER(
             UARTRX1.huart);
 
-
-        /*
-         * Reinicia la recepcion únicamente si
-         * no existe una trama esperando procesamiento.
-         */
         if (UARTRX1.flag_rx == 0)
         {
             HAL_UART_AbortReceive(
                 UARTRX1.huart);
-
 
             HAL_UARTEx_ReceiveToIdle_IT(
                 UARTRX1.huart,
@@ -518,54 +403,22 @@ void uartRX_Errores(
  * ===============================================================
  */
 
-
-/**
- * @brief Procesa la informacion recibida desde tierra.
- *
- * Permite:
- *
- * PP1:
- *    Prueba individual del servo:
- *
- *    $ANG,-45.0
- *
- * PP2:
- *    Trama definitiva de control USV:
- *
- *    $PUSVU,...*HH\r\n
- */
 void procesa_rx(void)
 {
     float angulo_recibido = 0.0f;
 
-
-    /*
-     * Verifica primero que realmente exista
-     * una trama recibida.
-     */
     if ((UARTRX1.trama_rx == NULL) ||
         (UARTRX1.flag_rx == 0))
     {
         return;
     }
 
-
-    /* ===========================================================
-     * PP1 - PRUEBA AISLADA DEL SERVO
-     * ===========================================================
-     *
-     * Ejemplo:
-     *
-     * $ANG,-45.0
-     */
+    /* PP1 - prueba aislada del servo: $ANG,-45.0 */
     if (sscanf(
             (char *)UARTRX1.trama_rx,
             "$ANG,%f",
             &angulo_recibido) == 1)
     {
-        /*
-         * Seguridad del rango.
-         */
         if (angulo_recibido < -90.0f)
         {
             angulo_recibido = -90.0f;
@@ -576,39 +429,18 @@ void procesa_rx(void)
             angulo_recibido = 90.0f;
         }
 
-
         SERVO_ANG(
             &SERVO1,
             angulo_recibido);
     }
 
-
-    /* ===========================================================
-     * PP2 - TRAMA COMPLETA $PUSVU
-     * ===========================================================
-     */
+    /* PP2 - trama completa oficial $PUSVU,...*HH\r\n */
     else if (USV_LeerComando(
                  (const char *)UARTRX1.trama_rx,
                  &comando_rx) != 0U)
     {
-        /*
-         * La funcion USV_LeerComando ya verifico:
-         *
-         * - Cabecera $PUSVU
-         * - cantidad de campos
-         * - CRC-8
-         * - rangos numericos
-         * - campos digitales
-         * - direccion contradictoria
-         */
-
         comando_usv_valido = 1U;
 
-
-        /*
-         * Distribuye las ordenes recibidas
-         * a los perifericos del bote.
-         */
         USV_Aplicar_Comando(
             &comando_rx);
     }
