@@ -81,6 +81,13 @@ volatile uint8_t imu_raw_ok = 0U;
 volatile uint8_t imu_raw_channel = 0U;
 volatile uint8_t imu_raw_report = 0U;
 volatile uint16_t imu_raw_length = 0U;
+
+/*
+ * Cada trama de tierra llega aproximadamente cada 50 ms.
+ * Se divide por 5 para que PB2 cambie de estado cada ~250 ms
+ * y el parpadeo sea claramente visible.
+ */
+uint8_t led_rx_divisor = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -296,6 +303,24 @@ imu_addr = IMU_GetAddress7bit();
     // Verifica si USART1 recibió una trama desde Tierra mediante ReceiveToIdle por interrupción
     if (UARTRX1.flag_rx == 1)
     {
+        /*
+         * PRUEBA SOLICITADA POR EL PROFESOR:
+         * Cada vez que USART1 recibe una señal/trama desde la estacion
+         * de tierra se cuenta el evento. Como la estacion transmite
+         * aproximadamente cada 50 ms, se conmuta PB2 cada 5 eventos
+         * para obtener un parpadeo visible de aproximadamente 2 Hz.
+         */
+        led_rx_divisor++;
+
+        if (led_rx_divisor >= 5U)
+        {
+            HAL_GPIO_TogglePin(
+                LED_RX_TIERRA_GPIO_Port,
+                LED_RX_TIERRA_Pin);
+
+            led_rx_divisor = 0U;
+        }
+
         procesa_rx();                 // Decodifica $PUSVU y distribuye las ordenes del control de tierra
         uartRX_DMA_Re_init(&UARTRX1); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
     }
@@ -838,6 +863,23 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  /*
+   * PB2: LED de prueba del enlace ESTACION -> BOTE.
+   * Se configura aqui para no depender de una regeneracion de CubeMX.
+   */
+  HAL_GPIO_WritePin(
+      LED_RX_TIERRA_GPIO_Port,
+      LED_RX_TIERRA_Pin,
+      GPIO_PIN_RESET);
+
+  GPIO_InitStruct.Pin = LED_RX_TIERRA_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(
+      LED_RX_TIERRA_GPIO_Port,
+      &GPIO_InitStruct);
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
