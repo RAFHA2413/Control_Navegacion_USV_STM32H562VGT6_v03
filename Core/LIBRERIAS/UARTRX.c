@@ -27,13 +27,17 @@
 #include "TELEMETRIA_USV.h"
 
 /*
- * PRUEBA TEMPORAL SOLO EN EL MICRO DEL BOTE.
- * 1 = las tramas se siguen recibiendo y diagnosticando, pero NO gobiernan
- *     el servo de camara. El main mueve el MG996R localmente para comprobar
- *     servo + alimentacion + Teleplot sin modificar el micro de tierra.
- * 0 = funcionamiento normal: la camara recibida por $PUSVU gobierna el servo.
+ * PRUEBA DE INTEGRACION ESTACION -> BOTE -> SERVO.
+ *
+ * 1 = una trama $PUSVU valida aplica UNICAMENTE el campo camara al MG996R.
+ *     Bomba, luces y propulsion se ignoran durante esta prueba.
+ *     Esto permite validar el joystick de tierra y el servo sin que otros
+ *     perifericos puedan interferir.
+ *
+ * 0 = funcionamiento completo normal del comando $PUSVU.
  */
-#define SERVO_PRUEBA_LOCAL_BOTE  1
+#define PRUEBA_INTEGRACION_CAMARA_TIERRA  1
+
 
 /* ---------------------------------------------------------------
  * VARIABLES EXTERNAS
@@ -159,10 +163,16 @@ static void USV_Aplicar_Comando(
         angulo_recibido = 90.0f;
     }
 
-#if (SERVO_PRUEBA_LOCAL_BOTE == 0)
     SERVO_ANG(
         &SERVO1,
         angulo_recibido);
+
+#if PRUEBA_INTEGRACION_CAMARA_TIERRA
+    /*
+     * Para esta prueba no se ejecuta ninguna otra orden recibida desde tierra.
+     * Solo se valida: joystick -> UART -> $PUSVU -> servo de camara.
+     */
+    return;
 #endif
 
 
