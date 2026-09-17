@@ -25,6 +25,7 @@
 #include "servos.h"
 #include "UARTRX.h"
 #include <stdio.h>
+#include "imu_bno085_i2c.h"
 
 /* USER CODE END Includes */
 
@@ -56,7 +57,17 @@ UART_HandleTypeDef huart3;
 UART_HandleTypeDef huart6;
 
 /* USER CODE BEGIN PV */
+volatile uint8_t imu_ok = 0U;
+volatile uint8_t imu_addr = 0U;
+volatile uint8_t imu_data_ok = 0U;
 
+float imu_roll = 0.0f;
+float imu_pitch = 0.0f;
+float imu_yaw = 0.0f;
+
+uint32_t imu_last_ms = 0U;
+uint32_t teleplot_last_ms = 0U;
+char teleplot_tx[160];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -126,13 +137,60 @@ SERVO_init(&SERVO1);
 SERVO_ANG(&SERVO1, 0.0f); // Posiciona inicialmente la cámara al centro (0°)
 uartRX_it_idle_dma_init(&UARTRX1);
 
-
+// Inicializa BNO085
+imu_ok = IMU_Init();
+imu_addr = IMU_GetAddress7bit();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    /* Lectura IMU cada 50 ms */
+   //if ((HAL_GetTick() - imu_last_ms) >= 50U)
+    {
+        imu_last_ms = HAL_GetTick();
+
+        if (IMU_ReadEuler(
+                &imu_roll,
+                &imu_pitch,
+                &imu_yaw) != 0U)
+        {
+            imu_data_ok = 1U;
+        }
+    }
+
+    /* Envío a Teleplot cada 200 ms */
+    if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
+    {
+        teleplot_last_ms = HAL_GetTick();
+
+        int len = snprintf(
+            teleplot_tx,
+            sizeof(teleplot_tx),
+            ">imu_ok:%u\r\n"
+            ">imu_addr:%u\r\n"
+            ">imu_data_ok:%u\r\n"
+            ">roll:%.2f\r\n"
+            ">pitch:%.2f\r\n"
+            ">yaw:%.2f\r\n",
+            (unsigned int)imu_ok,
+            (unsigned int)imu_addr,
+            (unsigned int)imu_data_ok,
+            imu_roll,
+            imu_pitch,
+            imu_yaw);
+
+        if (len > 0)
+        {
+            HAL_UART_Transmit(
+                &huart6,
+                (uint8_t *)teleplot_tx,
+                (uint16_t)len,
+                100U);
+        }
+    }
+
     // Verifica si USART1 recibió una trama desde Tierra mediante ReceiveToIdle por interrupción
     if (UARTRX1.flag_rx == 1)
     {
