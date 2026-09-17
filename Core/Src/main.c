@@ -83,11 +83,14 @@ volatile uint8_t imu_raw_report = 0U;
 volatile uint16_t imu_raw_length = 0U;
 
 /*
- * Cada trama de tierra llega aproximadamente cada 50 ms.
- * Se divide por 5 para que PB2 cambie de estado cada ~250 ms
- * y el parpadeo sea claramente visible.
+ * Diagnostico visual del enlace ESTACION -> BOTE.
+ *
+ * Mientras lleguen tramas por USART1, PB2 conmuta cada 250 ms.
+ * Si pasan mas de 400 ms sin recibir nada, se detiene el parpadeo.
  */
-uint8_t led_rx_divisor = 0U;
+uint32_t led_rx_ultimo_evento_ms = 0U;
+uint32_t led_rx_ultimo_toggle_ms = 0U;
+uint8_t led_rx_activo = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -224,6 +227,24 @@ int main(void)
   MX_ADC1_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+
+/*
+ * AUTOPRUEBA PB2:
+ * Al arrancar, el LED cambia de estado durante 300 ms y vuelve al estado inicial.
+ * Si este destello no se ve, el problema esta en PB2/LED y no en la UART.
+ */
+HAL_GPIO_WritePin(
+    LED_RX_TIERRA_GPIO_Port,
+    LED_RX_TIERRA_Pin,
+    GPIO_PIN_SET);
+HAL_Delay(300U);
+
+HAL_GPIO_WritePin(
+    LED_RX_TIERRA_GPIO_Port,
+    LED_RX_TIERRA_Pin,
+    GPIO_PIN_RESET);
+HAL_Delay(300U);
+
 // Inicializa la señal PWM en el pin PB0 (SERVO_CAMARA)
 SERVO_init(&SERVO1);
 SERVO_ANG(&SERVO1, 0.0f); // Posiciona inicialmente la cámara al centro (0°)
@@ -278,7 +299,9 @@ imu_addr = IMU_GetAddress7bit();
             ">rx_eventos:%lu\r\n"
             ">tramas_validas:%lu\r\n"
             ">camara_rx:%d\r\n"
-            ">servo_ccr3:%lu\r\n",
+            ">servo_ccr3:%lu\r\n"
+            ">pb2_estado:%u\r\n"
+            ">enlace_tierra:%u\r\n",
             (unsigned int)imu_ok,
             (unsigned int)imu_addr,
             (unsigned int)imu_data_ok,
@@ -288,7 +311,11 @@ imu_addr = IMU_GetAddress7bit();
             (unsigned long)usv_rx_eventos,
             (unsigned long)usv_tramas_validas,
             (int)usv_camara_recibida,
-            (unsigned long)TIM3->CCR3);
+            (unsigned long)TIM3->CCR3,
+            (unsigned int)HAL_GPIO_ReadPin(
+                LED_RX_TIERRA_GPIO_Port,
+                LED_RX_TIERRA_Pin),
+            (unsigned int)led_rx_activo);
 
         if (len > 0)
         {
@@ -304,25 +331,42 @@ imu_addr = IMU_GetAddress7bit();
     if (UARTRX1.flag_rx == 1)
     {
         /*
-         * PRUEBA SOLICITADA POR EL PROFESOR:
-         * Cada vez que USART1 recibe una señal/trama desde la estacion
-         * de tierra se cuenta el evento. Como la estacion transmite
-         * aproximadamente cada 50 ms, se conmuta PB2 cada 5 eventos
-         * para obtener un parpadeo visible de aproximadamente 2 Hz.
+         * Cada recepción actualiza la marca de tiempo del enlace.
+         * El parpadeo de PB2 se ejecuta abajo, sin bloquear el while.
          */
-        led_rx_divisor++;
-
-        if (led_rx_divisor >= 5U)
-        {
-            HAL_GPIO_TogglePin(
-                LED_RX_TIERRA_GPIO_Port,
-                LED_RX_TIERRA_Pin);
-
-            led_rx_divisor = 0U;
-        }
+        led_rx_ultimo_evento_ms = HAL_GetTick();
+        led_rx_activo = 1U;
 
         procesa_rx();                 // Decodifica $PUSVU y distribuye las ordenes del control de tierra
         uartRX_DMA_Re_init(&UARTRX1); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
+    }
+
+    /*
+     * PRUEBA SOLICITADA POR EL PROFESOR:
+     * PB2 parpadea aproximadamente a 2 Hz mientras se siguen recibiendo
+     * tramas desde la estacion de tierra.
+     */
+    if (led_rx_activo != 0U)
+    {
+        uint32_t ahora_led = HAL_GetTick();
+
+        if ((uint32_t)(ahora_led - led_rx_ultimo_evento_ms) > 400U)
+        {
+            /* No han llegado tramas recientemente: detiene el parpadeo. */
+            led_rx_activo = 0U;
+            HAL_GPIO_WritePin(
+                LED_RX_TIERRA_GPIO_Port,
+                LED_RX_TIERRA_Pin,
+                GPIO_PIN_RESET);
+        }
+        else if ((uint32_t)(ahora_led - led_rx_ultimo_toggle_ms) >= 250U)
+        {
+            led_rx_ultimo_toggle_ms = ahora_led;
+
+            HAL_GPIO_TogglePin(
+                LED_RX_TIERRA_GPIO_Port,
+                LED_RX_TIERRA_Pin);
+        }
     }
 
     /* Envia $PUSVD hacia tierra cada 500 ms. */
