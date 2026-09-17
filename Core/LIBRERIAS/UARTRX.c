@@ -61,6 +61,11 @@ USV_Comando comando_rx;
 /* 1 cuando se recibio correctamente al menos una trama $PUSVU. */
 volatile uint8_t comando_usv_valido = 0U;
 
+/* Diagnostico temporal ESTACION -> BOTE. */
+volatile uint32_t usv_rx_eventos = 0U;
+volatile uint32_t usv_tramas_validas = 0U;
+volatile int16_t usv_camara_recibida = 0;
+
 /* Se conserva hasta asignar fisicamente la salida de luces. */
 volatile uint8_t orden_luces = 0U;
 
@@ -358,6 +363,7 @@ void uartRX_INTERRUPT(
             '\0';
 
         UARTRX1.flag_rx = 1;
+        usv_rx_eventos++;
     }
 }
 
@@ -440,6 +446,8 @@ void procesa_rx(void)
                  &comando_rx) != 0U)
     {
         comando_usv_valido = 1U;
+        usv_tramas_validas++;
+        usv_camara_recibida = comando_rx.camara;
 
         USV_Aplicar_Comando(
             &comando_rx);
