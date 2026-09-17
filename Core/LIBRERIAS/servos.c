@@ -13,6 +13,19 @@
 extern TIM_HandleTypeDef htim3;
 
 
+/*
+ * PRUEBA TEMPORAL DEL SERVO DE CAMARA
+ *
+ * 1 = al reiniciar el STM32 ejecuta automaticamente:
+ *     0 -> +45 -> 0 -> -45 -> 0 grados.
+ *
+ * 0 = funcionamiento normal sin prueba automatica.
+ *
+ * Cuando terminemos de validar el servo, cambiar a 0.
+ */
+#define SERVO_PRUEBA_AUTOMATICA  1
+#define SERVO_PRUEBA_RETARDO_MS  1500U
+
 
 //Configurar Servos Usados
 SERVOS SERVO1 = {&htim3, &(TIM3->CCR3),TIM_CHANNEL_3};
@@ -21,10 +34,35 @@ SERVOS SERVO1 = {&htim3, &(TIM3->CCR3),TIM_CHANNEL_3};
 
 
 
-void   SERVO_init(SERVOS *servo)
+void SERVO_init(SERVOS *servo)
 {
-HAL_TIM_PWM_Start(servo->htim, servo->channel);
+    HAL_TIM_PWM_Start(servo->htim, servo->channel);
 
+#if SERVO_PRUEBA_AUTOMATICA
+    /*
+     * Secuencia aislada para verificar:
+     * TIM3_CH3 -> PB0 -> señal del servo de camara.
+     *
+     * Con TIM3 a 1 us por cuenta se esperan aproximadamente:
+     *   0 grados   = 1500 us
+     *  +45 grados  = 1750 us
+     *  -45 grados  = 1250 us
+     */
+    SERVO_ANG(servo, 0.0f);
+    HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
+
+    SERVO_ANG(servo, 45.0f);
+    HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
+
+    SERVO_ANG(servo, 0.0f);
+    HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
+
+    SERVO_ANG(servo, -45.0f);
+    HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
+
+    SERVO_ANG(servo, 0.0f);
+    HAL_Delay(SERVO_PRUEBA_RETARDO_MS);
+#endif
 }
 
 
