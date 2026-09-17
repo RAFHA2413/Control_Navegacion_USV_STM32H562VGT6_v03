@@ -147,7 +147,7 @@ imu_addr = IMU_GetAddress7bit();
   while (1)
   {
     /* Lectura IMU cada 50 ms */
-   //if ((HAL_GetTick() - imu_last_ms) >= 50U)
+   if ((HAL_GetTick() - imu_last_ms) >= 50U)
     {
         imu_last_ms = HAL_GetTick();
 
