@@ -46,7 +46,7 @@ extern I2C_HandleTypeDef hi2c1;
 /* 50 000 us = 50 ms = 20 Hz */
 #define IMU_REPORT_INTERVAL_US           50000UL
 
-#define IMU_I2C_TIMEOUT_MS               50U
+#define IMU_I2C_TIMEOUT_MS               200U
 
 /*
  * Cada lectura I2C del BNO085 vuelve a entregar 4 bytes
