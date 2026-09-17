@@ -126,19 +126,18 @@ SERVO_init(&SERVO1);
 SERVO_ANG(&SERVO1, 0.0f); // Posiciona inicialmente la cámara al centro (0°)
 uartRX_it_idle_dma_init(&UARTRX1);
 
-// Inicializa la recepción por DMA usando la librería UARTRX
-uartRX_it_idle_dma_init(&UARTRX1);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    // Verifica si el módulo DMA/UART capturó una trama completa desde Tierra
+    // Verifica si USART1 recibió una trama desde Tierra mediante ReceiveToIdle por interrupción
     if (UARTRX1.flag_rx == 1)
     {
-        procesa_rx();                 // Lee el ángulo y mueve el SERVO_CAMARA (PA6)
-        uartRX_DMA_Re_init(&UARTRX1); // Reinicia la escucha por DMA para la siguiente trama
+        procesa_rx();                 // Procesa la trama recibida y actualiza el SERVO_CAMARA en PB0 / TIM3_CH3
+        uartRX_DMA_Re_init(&UARTRX1); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
     }
 
     /* USER CODE END WHILE */
@@ -681,7 +680,19 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_UARTEx_RxEventCallback(
+        UART_HandleTypeDef *huart,
+        uint16_t Size)
+{
+    uartRX_INTERRUPT(huart, Size);
+}
 
+
+void HAL_UART_ErrorCallback(
+        UART_HandleTypeDef *huart)
+{
+    uartRX_Errores(huart);
+}
 /* USER CODE END 4 */
 
  /* MPU Configuration */

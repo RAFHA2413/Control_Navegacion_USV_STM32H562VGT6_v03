@@ -15,7 +15,7 @@ extern TIM_HandleTypeDef htim3;
 
 
 //Configurar Servos Usados
-SERVOS SERVO1 = {&htim3, &(TIM3->CCR1),TIM_CHANNEL_1};
+SERVOS SERVO1 = {&htim3, &(TIM3->CCR3),TIM_CHANNEL_3};
 
 
 

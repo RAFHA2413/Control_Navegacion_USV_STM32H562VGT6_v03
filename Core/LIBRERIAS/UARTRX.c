@@ -24,7 +24,6 @@
 #include <stdint.h>
 
 #include "servos.h"
-#include "MAP_.h"
 
 /* Libreria oficial de trama USV */
 #include "trama_usv.h"
@@ -560,7 +559,7 @@ void procesa_rx(void)
      * $ANG,-45.0
      */
     if (sscanf(
-            UARTRX1.trama_rx,
+            (char *)UARTRX1.trama_rx,
             "$ANG,%f",
             &angulo_recibido) == 1)
     {
@@ -589,7 +588,7 @@ void procesa_rx(void)
      * ===========================================================
      */
     else if (USV_LeerComando(
-                 UARTRX1.trama_rx,
+                 (const char *)UARTRX1.trama_rx,
                  &comando_rx) != 0U)
     {
         /*
@@ -613,15 +612,6 @@ void procesa_rx(void)
         USV_Aplicar_Comando(
             &comando_rx);
     }
-
-
-    /*
-     * La trama ya fue procesada.
-     *
-     * Reinicia USART1 para recibir la siguiente.
-     */
-    uartRX_DMA_Re_init(
-        &UARTRX1);
 }
 
 
