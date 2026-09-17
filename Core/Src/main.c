@@ -69,7 +69,7 @@ float imu_yaw = 0.0f;
 
 uint32_t imu_last_ms = 0U;
 uint32_t teleplot_last_ms = 0U;
-char teleplot_tx[160];
+char teleplot_tx[240];
 uint8_t imu_raw[23];
 
 int16_t imu_qi_raw = 0;
@@ -267,13 +267,21 @@ imu_addr = IMU_GetAddress7bit();
             ">imu_data_ok:%u\r\n"
             ">roll:%.2f\r\n"
             ">pitch:%.2f\r\n"
-            ">yaw:%.2f\r\n",
+            ">yaw:%.2f\r\n"
+            ">rx_eventos:%lu\r\n"
+            ">tramas_validas:%lu\r\n"
+            ">camara_rx:%d\r\n"
+            ">servo_ccr3:%lu\r\n",
             (unsigned int)imu_ok,
             (unsigned int)imu_addr,
             (unsigned int)imu_data_ok,
             imu_roll,
             imu_pitch,
-            imu_yaw);
+            imu_yaw,
+            (unsigned long)usv_rx_eventos,
+            (unsigned long)usv_tramas_validas,
+            (int)usv_camara_recibida,
+            (unsigned long)TIM3->CCR3);
 
         if (len > 0)
         {
