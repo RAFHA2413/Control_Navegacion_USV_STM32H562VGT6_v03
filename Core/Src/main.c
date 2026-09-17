@@ -26,6 +26,7 @@
 #include "UARTRX.h"
 #include <stdio.h>
 #include "imu_bno085_i2c.h"
+#include <math.h>
 
 /* USER CODE END Includes */
 
@@ -68,6 +69,17 @@ float imu_yaw = 0.0f;
 uint32_t imu_last_ms = 0U;
 uint32_t teleplot_last_ms = 0U;
 char teleplot_tx[160];
+uint8_t imu_raw[23];
+
+int16_t imu_qi_raw = 0;
+int16_t imu_qj_raw = 0;
+int16_t imu_qk_raw = 0;
+int16_t imu_qr_raw = 0;
+
+volatile uint8_t imu_raw_ok = 0U;
+volatile uint8_t imu_raw_channel = 0U;
+volatile uint8_t imu_raw_report = 0U;
+volatile uint16_t imu_raw_length = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
