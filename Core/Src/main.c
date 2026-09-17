@@ -39,6 +39,14 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+/*
+ * PRUEBA TEMPORAL SOLO EN EL MICRO DEL BOTE.
+ * Mueve localmente el MG996R entre -90 y +90 grados cada 2 s
+ * sin detener IMU, Teleplot ni la recepcion de tramas desde tierra.
+ */
+#define SERVO_PRUEBA_LOCAL_BOTE       1
+#define SERVO_PRUEBA_LOCAL_PERIODO_MS 2000U
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -81,6 +89,9 @@ volatile uint8_t imu_raw_ok = 0U;
 volatile uint8_t imu_raw_channel = 0U;
 volatile uint8_t imu_raw_report = 0U;
 volatile uint16_t imu_raw_length = 0U;
+
+uint32_t servo_prueba_last_ms = 0U;
+uint8_t servo_prueba_estado = 0U;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -228,6 +239,11 @@ TELEMETRIA_USV_init(&TELEMETRIA1);
 // Inicializa BNO085
 imu_ok = IMU_Init();
 imu_addr = IMU_GetAddress7bit();
+
+#if SERVO_PRUEBA_LOCAL_BOTE
+servo_prueba_last_ms = HAL_GetTick();
+servo_prueba_estado = 0U;
+#endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -302,6 +318,30 @@ imu_addr = IMU_GetAddress7bit();
 
     /* Envia $PUSVD hacia tierra cada 500 ms. */
     TELEMETRIA_USV_Tarea(&TELEMETRIA1);
+
+#if SERVO_PRUEBA_LOCAL_BOTE
+    /*
+     * Prueba no bloqueante del servo.
+     * Mantiene funcionando IMU, Teleplot y recepcion UART al mismo tiempo.
+     * Las tramas $PUSVU siguen contando y mostrando camara_rx, pero durante
+     * esta prueba no modifican la posicion del servo.
+     */
+    if ((HAL_GetTick() - servo_prueba_last_ms) >= SERVO_PRUEBA_LOCAL_PERIODO_MS)
+    {
+        servo_prueba_last_ms = HAL_GetTick();
+
+        if (servo_prueba_estado == 0U)
+        {
+            SERVO_ANG(&SERVO1, -90.0f);
+            servo_prueba_estado = 1U;
+        }
+        else
+        {
+            SERVO_ANG(&SERVO1, 90.0f);
+            servo_prueba_estado = 0U;
+        }
+    }
+#endif
 
     /* USER CODE END WHILE */
 
