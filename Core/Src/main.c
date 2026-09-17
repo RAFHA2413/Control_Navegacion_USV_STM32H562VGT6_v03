@@ -26,6 +26,7 @@
 #include "UARTRX.h"
 #include <stdio.h>
 #include "imu_bno085_i2c.h"
+#include "TELEMETRIA_USV.h"
 #include <math.h>
 
 /* USER CODE END Includes */
@@ -101,6 +102,78 @@ void procesa_rx(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/*
+ * Convierte los angulos reales del BNO085 al formato exigido por $PUSVD.
+ *
+ * - yaw:   0.0 ... 359.9 grados, almacenado x10.
+ * - pitch: -90.0 ... +90.0 grados, almacenado x10.
+ * - roll:  -90.0 ... +90.0 grados, almacenado x10.
+ *
+ * El BNO085 puede entregar roll fuera de +/-90 dependiendo de la orientacion.
+ * La Trama Version 3 no admite ese rango, por eso se satura antes de enviarlo.
+ */
+static void USV_ActualizarTelemetriaIMU(
+        float roll,
+        float pitch,
+        float yaw)
+{
+    int32_t yaw_x10;
+    int32_t pitch_x10;
+    int32_t roll_x10;
+
+    while (yaw < 0.0f)
+    {
+        yaw += 360.0f;
+    }
+
+    while (yaw >= 360.0f)
+    {
+        yaw -= 360.0f;
+    }
+
+    if (pitch < -90.0f)
+    {
+        pitch = -90.0f;
+    }
+    else if (pitch > 90.0f)
+    {
+        pitch = 90.0f;
+    }
+
+    if (roll < -90.0f)
+    {
+        roll = -90.0f;
+    }
+    else if (roll > 90.0f)
+    {
+        roll = 90.0f;
+    }
+
+    yaw_x10 =
+        (int32_t)((yaw * 10.0f) + 0.5f);
+
+    pitch_x10 =
+        (int32_t)((pitch >= 0.0f) ?
+            ((pitch * 10.0f) + 0.5f) :
+            ((pitch * 10.0f) - 0.5f));
+
+    roll_x10 =
+        (int32_t)((roll >= 0.0f) ?
+            ((roll * 10.0f) + 0.5f) :
+            ((roll * 10.0f) - 0.5f));
+
+    if (yaw_x10 > 3599)
+    {
+        yaw_x10 = 3599;
+    }
+
+    TELEMETRIA_USV_IMU(
+        &TELEMETRIA1,
+        (uint16_t)yaw_x10,
+        (int16_t)pitch_x10,
+        (int16_t)roll_x10);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -149,6 +222,9 @@ SERVO_init(&SERVO1);
 SERVO_ANG(&SERVO1, 0.0f); // Posiciona inicialmente la cámara al centro (0°)
 uartRX_it_idle_dma_init(&UARTRX1);
 
+// Inicializa la telemetria oficial $PUSVD por USART1 / XBee
+TELEMETRIA_USV_init(&TELEMETRIA1);
+
 // Inicializa BNO085
 imu_ok = IMU_Init();
 imu_addr = IMU_GetAddress7bit();
@@ -169,6 +245,12 @@ imu_addr = IMU_GetAddress7bit();
                 &imu_yaw) != 0U)
         {
             imu_data_ok = 1U;
+
+            /* Carga yaw, pitch y roll reales en la estructura $PUSVD. */
+            USV_ActualizarTelemetriaIMU(
+                imu_roll,
+                imu_pitch,
+                imu_yaw);
         }
     }
 
@@ -206,9 +288,12 @@ imu_addr = IMU_GetAddress7bit();
     // Verifica si USART1 recibió una trama desde Tierra mediante ReceiveToIdle por interrupción
     if (UARTRX1.flag_rx == 1)
     {
-        procesa_rx();                 // Procesa la trama recibida y actualiza el SERVO_CAMARA en PB0 / TIM3_CH3
+        procesa_rx();                 // Decodifica $PUSVU y distribuye las ordenes del control de tierra
         uartRX_DMA_Re_init(&UARTRX1); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
     }
+
+    /* Envia $PUSVD hacia tierra cada 500 ms. */
+    TELEMETRIA_USV_Tarea(&TELEMETRIA1);
 
     /* USER CODE END WHILE */
 
