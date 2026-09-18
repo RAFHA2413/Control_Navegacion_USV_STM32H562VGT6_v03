@@ -28,6 +28,7 @@
 #include "imu_bno085_i2c.h"
 #include "TELEMETRIA_USV.h"
 #include <math.h>
+#include "stm32h5xx_hal_gpio.h"
 #include "uart.h"
 
 /* USER CODE END Includes */
@@ -343,6 +344,7 @@ imu_addr = IMU_GetAddress7bit();
   uartx_write_text(&huart1, UARTRX1.trama_rx);
        // procesa_rx();                 // Decodifica $PUSVU y distribuye las ordenes del control de tierra
         uartRX_DMA_Re_init(&UARTRX1); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
+        HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin); // Parpadeo de prueba
     }
 
     /*
@@ -906,8 +908,8 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, DO1_PB12_Pin|DO2_PB13_Pin|DO3_PB14_Pin|DO4_PB15_Pin
-                          |ACHIQUE_CTRL_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LED_Pin|DO1_PB12_Pin|DO2_PB13_Pin|DO3_PB14_Pin
+                          |DO4_PB15_Pin|ACHIQUE_CTRL_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : DI1_PA4_Pin DI2_PA5_Pin DI3_PA6_Pin DI4_PA7_Pin */
   GPIO_InitStruct.Pin = DI1_PA4_Pin|DI2_PA5_Pin|DI3_PA6_Pin|DI4_PA7_Pin;
@@ -921,10 +923,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(HUMIDITY_DO_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : DO1_PB12_Pin DO2_PB13_Pin DO3_PB14_Pin DO4_PB15_Pin
-                           ACHIQUE_CTRL_Pin */
-  GPIO_InitStruct.Pin = DO1_PB12_Pin|DO2_PB13_Pin|DO3_PB14_Pin|DO4_PB15_Pin
-                          |ACHIQUE_CTRL_Pin;
+  /*Configure GPIO pins : LED_Pin DO1_PB12_Pin DO2_PB13_Pin DO3_PB14_Pin
+                           DO4_PB15_Pin ACHIQUE_CTRL_Pin */
+  GPIO_InitStruct.Pin = LED_Pin|DO1_PB12_Pin|DO2_PB13_Pin|DO3_PB14_Pin
+                          |DO4_PB15_Pin|ACHIQUE_CTRL_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

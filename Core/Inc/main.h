@@ -75,6 +75,8 @@ void Error_Handler(void);
 #define HUMIDITY_DO_GPIO_Port GPIOC
 #define SERVO_CAMARA_Pin GPIO_PIN_0
 #define SERVO_CAMARA_GPIO_Port GPIOB
+#define LED_Pin GPIO_PIN_2
+#define LED_GPIO_Port GPIOB
 #define DO1_PB12_Pin GPIO_PIN_12
 #define DO1_PB12_GPIO_Port GPIOB
 #define DO2_PB13_Pin GPIO_PIN_13
