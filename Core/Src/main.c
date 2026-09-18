@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include "imu_bno085_i2c.h"
 #include "TELEMETRIA_USV.h"
+#include "trama_usv.h"
 #include <math.h>
 #include "stm32h5xx_hal_gpio.h"
 #include "uart.h"
@@ -94,6 +95,16 @@ volatile uint16_t imu_raw_length = 0U;
 uint32_t led_rx_ultimo_evento_ms = 0U;
 uint32_t led_rx_ultimo_toggle_ms = 0U;
 uint8_t led_rx_activo = 0U;
+
+/*
+ * Integracion de la trama oficial $PUSVU realizada SOLO en main.c.
+ * No se modifica UARTRX.c, trama_usv.c, servos.c ni ninguna otra libreria.
+ */
+static USV_Comando comando_tierra_rx_main = {0};
+static volatile uint32_t rx_eventos_main = 0U;
+static volatile uint32_t pusvu_validas_main = 0U;
+static volatile uint32_t pusvu_invalidas_main = 0U;
+static volatile int16_t camara_rx_main = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -287,8 +298,11 @@ imu_addr = IMU_GetAddress7bit();
         }
     }
 
-    /* Envío a Teleplot cada 200 ms */
-    /* if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
+    /* Envio a Teleplot cada 200 ms.
+     * USART6 queda exclusivamente para diagnostico/IMU y no interfiere
+     * con USART1, que se usa para los XBee.
+     */
+    if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
     {
         teleplot_last_ms = HAL_GetTick();
 
@@ -302,25 +316,21 @@ imu_addr = IMU_GetAddress7bit();
             ">pitch:%.2f\r\n"
             ">yaw:%.2f\r\n"
             ">rx_eventos:%lu\r\n"
-            ">tramas_validas:%lu\r\n"
+            ">pusvu_validas:%lu\r\n"
+            ">pusvu_invalidas:%lu\r\n"
             ">camara_rx:%d\r\n"
-            ">servo_ccr3:%lu\r\n"
-            ">pb2_estado:%u\r\n"
-            ">enlace_tierra:%u\r\n",
+            ">servo_ccr3:%lu\r\n",
             (unsigned int)imu_ok,
             (unsigned int)imu_addr,
             (unsigned int)imu_data_ok,
             imu_roll,
             imu_pitch,
             imu_yaw,
-            (unsigned long)usv_rx_eventos,
-            (unsigned long)usv_tramas_validas,
-            (int)usv_camara_recibida,
-            (unsigned long)TIM3->CCR3,
-            (unsigned int)HAL_GPIO_ReadPin(
-                LED_RX_TIERRA_GPIO_Port,
-                LED_RX_TIERRA_Pin),
-            (unsigned int)led_rx_activo);
+            (unsigned long)rx_eventos_main,
+            (unsigned long)pusvu_validas_main,
+            (unsigned long)pusvu_invalidas_main,
+            (int)camara_rx_main,
+            (unsigned long)TIM3->CCR3);
 
         if (len > 0)
         {
@@ -330,21 +340,74 @@ imu_addr = IMU_GetAddress7bit();
                 (uint16_t)len,
                 100U);
         }
-    } */
+    }
 
-    // Verifica si USART1 recibió una trama desde Tierra mediante ReceiveToIdle por interrupción
+    // Verifica si USART1 recibio una trama desde Tierra mediante ReceiveToIdle por DMA
     if (UARTRX1.flag_rx == 1)
     {
+        uint16_t longitud_rx;
+
+        rx_eventos_main++;
+        led_rx_ultimo_evento_ms = HAL_GetTick();
+        led_rx_activo = 1U;
+
         /*
-         * Cada recepción actualiza la marca de tiempo del enlace.
-         * El parpadeo de PB2 se ejecuta abajo, sin bloquear el while.
+         * La libreria UARTRX entrega la cantidad de bytes en num_datos.
+         * Se garantiza terminacion NUL aqui, en main.c, antes de pasar
+         * la cadena al decodificador oficial de la trama.
          */
-       // led_rx_ultimo_evento_ms = HAL_GetTick();
-       // led_rx_activo = 1U;
-  uartx_write_text(&huart1, UARTRX1.trama_rx);
-       // procesa_rx();                 // Decodifica $PUSVU y distribuye las ordenes del control de tierra
-        uartRX_DMA_Re_init(&UARTRX1); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
-        HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin); // Parpadeo de prueba
+        longitud_rx = UARTRX1.num_datos;
+
+        if (longitud_rx >= UARTRX1.sizeT)
+        {
+            longitud_rx = UARTRX1.sizeT - 1U;
+        }
+
+        UARTRX1.trama_rx[longitud_rx] = '\0';
+
+        /*
+         * IMPORTANTE:
+         * No se llama procesa_rx(), porque esa funcion de la libreria
+         * UARTRX vigente interpreta el formato de prueba "SER=".
+         *
+         * Para la integracion real se usa la trama oficial $PUSVU:
+         * USV_LeerComando() verifica estructura, CRC y los 16 campos.
+         */
+        if (USV_LeerComando(
+                (const char *)UARTRX1.trama_rx,
+                &comando_tierra_rx_main) != 0U)
+        {
+            pusvu_validas_main++;
+            camara_rx_main = comando_tierra_rx_main.camara;
+
+            /*
+             * Campo 6 de $PUSVU:
+             * camara = grados enteros de -90 a +90.
+             *
+             * SERVO_ANG() ya usa la calibracion validada del MG996R:
+             * -90 -> 500 us, 0 -> 1500 us, +90 -> 2500 us.
+             */
+            SERVO_ANG(
+                &SERVO1,
+                (float)camara_rx_main);
+
+            /* Indicacion visual de una trama oficial correctamente decodificada. */
+            HAL_GPIO_TogglePin(
+                LED_GPIO_Port,
+                LED_Pin);
+        }
+        else
+        {
+            /*
+             * Si este contador aumenta, la comunicacion fisica funciona
+             * pero existe una diferencia de formato, CRC o escala entre
+             * la estacion de tierra y el bote.
+             */
+            pusvu_invalidas_main++;
+        }
+
+        /* Rearma la recepcion DMA para la siguiente trama. */
+        uartRX_DMA_Re_init(&UARTRX1);
     }
 
     /*
