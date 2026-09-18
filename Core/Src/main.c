@@ -28,6 +28,7 @@
 #include "imu_bno085_i2c.h"
 #include "TELEMETRIA_USV.h"
 #include <math.h>
+#include "uart.h"
 
 /* USER CODE END Includes */
 
@@ -339,7 +340,7 @@ imu_addr = IMU_GetAddress7bit();
          */
        // led_rx_ultimo_evento_ms = HAL_GetTick();
        // led_rx_activo = 1U;
-
+  uartx_write_text(&huart1, UARTRX1.trama_rx);
        // procesa_rx();                 // Decodifica $PUSVU y distribuye las ordenes del control de tierra
         uartRX_DMA_Re_init(&UARTRX1); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
     }
