@@ -57,6 +57,7 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
 UART_HandleTypeDef huart6;
+DMA_HandleTypeDef handle_GPDMA1_Channel0;
 
 /* USER CODE BEGIN PV */
 volatile uint8_t imu_ok = 0U;
@@ -97,14 +98,15 @@ uint8_t led_rx_activo = 0U;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_GPDMA1_Init(void);
 static void MX_ICACHE_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART6_UART_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM3_Init(void);
-static void MX_ADC1_Init(void);
 static void MX_USART3_UART_Init(void);
+static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 void procesa_rx(void);
 /* USER CODE END PFP */
@@ -218,14 +220,15 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_GPDMA1_Init();
   MX_ICACHE_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_USART6_UART_Init();
   MX_I2C1_Init();
   MX_TIM3_Init();
-  MX_ADC1_Init();
   MX_USART3_UART_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
 /*
@@ -283,7 +286,7 @@ imu_addr = IMU_GetAddress7bit();
     }
 
     /* Envío a Teleplot cada 200 ms */
-    if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
+    /* if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
     {
         teleplot_last_ms = HAL_GetTick();
 
@@ -325,7 +328,7 @@ imu_addr = IMU_GetAddress7bit();
                 (uint16_t)len,
                 100U);
         }
-    }
+    } */
 
     // Verifica si USART1 recibió una trama desde Tierra mediante ReceiveToIdle por interrupción
     if (UARTRX1.flag_rx == 1)
@@ -334,10 +337,10 @@ imu_addr = IMU_GetAddress7bit();
          * Cada recepción actualiza la marca de tiempo del enlace.
          * El parpadeo de PB2 se ejecuta abajo, sin bloquear el while.
          */
-        led_rx_ultimo_evento_ms = HAL_GetTick();
-        led_rx_activo = 1U;
+       // led_rx_ultimo_evento_ms = HAL_GetTick();
+       // led_rx_activo = 1U;
 
-        procesa_rx();                 // Decodifica $PUSVU y distribuye las ordenes del control de tierra
+       // procesa_rx();                 // Decodifica $PUSVU y distribuye las ordenes del control de tierra
         uartRX_DMA_Re_init(&UARTRX1); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
     }
 
@@ -511,6 +514,34 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief GPDMA1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPDMA1_Init(void)
+{
+
+  /* USER CODE BEGIN GPDMA1_Init 0 */
+
+  /* USER CODE END GPDMA1_Init 0 */
+
+  /* Peripheral clock enable */
+  __HAL_RCC_GPDMA1_CLK_ENABLE();
+
+  /* GPDMA1 interrupt Init */
+    HAL_NVIC_SetPriority(GPDMA1_Channel0_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(GPDMA1_Channel0_IRQn);
+
+  /* USER CODE BEGIN GPDMA1_Init 1 */
+
+  /* USER CODE END GPDMA1_Init 1 */
+  /* USER CODE BEGIN GPDMA1_Init 2 */
+
+  /* USER CODE END GPDMA1_Init 2 */
 
 }
 
@@ -929,19 +960,7 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_UARTEx_RxEventCallback(
-        UART_HandleTypeDef *huart,
-        uint16_t Size)
-{
-    uartRX_INTERRUPT(huart, Size);
-}
 
-
-void HAL_UART_ErrorCallback(
-        UART_HandleTypeDef *huart)
-{
-    uartRX_Errores(huart);
-}
 /* USER CODE END 4 */
 
  /* MPU Configuration */

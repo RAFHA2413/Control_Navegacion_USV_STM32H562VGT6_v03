@@ -19,7 +19,7 @@ typedef struct {
     volatile uint32_t *SR;
     volatile uint32_t *RDR;
     volatile uint32_t *ICR;
-    volatile uint8_t flag_rx;
+    char flag_rx;
 	uint16_t dato;
 	uint16_t num_datos;
 	uint8_t *trama_rx;
@@ -125,11 +125,6 @@ if (UARTRX1.flag_rx==1)
 
 
 */
-
-/* Diagnostico temporal de la comunicacion ESTACION -> BOTE. */
-extern volatile uint32_t usv_rx_eventos;
-extern volatile uint32_t usv_tramas_validas;
-extern volatile int16_t usv_camara_recibida;
 
 void uartRX_it_idle_dma_init(UARTRXS *SERIAL);
 void uartRX_DMA_Re_init(UARTRXS *SERIAL);
