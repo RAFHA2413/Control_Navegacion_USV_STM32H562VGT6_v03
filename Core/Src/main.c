@@ -36,6 +36,7 @@
 
 #include "gps.h"
 #include "adc_x.h"
+#include "temp_ds18b20.h"
 
 #include "stdio.h"
 #include "stdlib.h"
@@ -89,6 +90,8 @@ float imu_yaw = 0.0f;
 
 uint32_t imu_last_ms = 0U;
 uint32_t teleplot_last_ms = 0U;
+uint32_t temperatura_last_ms = 0U;
+float temperatura_c = -100.0f;
 char teleplot_tx[240];
 uint8_t imu_raw[23];
 
@@ -299,13 +302,17 @@ TELEMETRIA_USV_init(&TELEMETRIA1);
 imu_ok = IMU_Init();
 imu_addr = IMU_GetAddress7bit();
 
+// Inicializa DS18B20 / 1-Wire en PC2 (TEMPE)
+TEMPE_Init();
+
 /*
  * Inicia ADC1 por DMA usando la libreria adc_x.
- * CubeMX tiene 4 conversiones:
- * [0] PA0, [1] PC1, [2] PC2, [3] PC3 (humedad).
- * Se pasa 4 de forma explicita para no modificar la libreria.
+ * CubeMX tiene 3 conversiones:
+ * [0] PA0, [1] PC1, [2] PC3 (humedad).
+ * PC2 ya no pertenece al ADC: se usa para DS18B20 / 1-Wire.
+ * Se pasa 3 de forma explicita para no modificar la libreria adc_x.
  */
-ADC_Read_DMA(&hadc1, 4U, adc1_codigo);
+ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -333,8 +340,20 @@ ADC_Read_DMA(&hadc1, 4U, adc1_codigo);
     }
 
     /*
+     * PRUEBA SENSOR DE TEMPERATURA DS18B20:
+     * PC2 = TEMPE = bus 1-Wire.
+     * La libreria realiza internamente la conversion y devuelve grados Celsius.
+     * Se actualiza cada 2 s. TEMPE_Read() es bloqueante durante ~750 ms.
+     */
+    if ((HAL_GetTick() - temperatura_last_ms) >= 2000U)
+    {
+        temperatura_last_ms = HAL_GetTick();
+        temperatura_c = TEMPE_Read();
+    }
+
+    /*
      * PRUEBA SENSOR DE HUMEDAD:
-     * PC3 = ADC1_INP13 = Rank 4 = adc1_codigo[3].
+     * PC3 = ADC1_INP13 = Rank 3 = adc1_codigo[2].
      *
      * Calibracion experimental:
      *   ADC = 4095 -> 0 % mojado (seco)
@@ -349,7 +368,7 @@ ADC_Read_DMA(&hadc1, 4U, adc1_codigo);
         teleplot_last_ms = HAL_GetTick();
 
         humedad_pct =
-            ((4095.0f - (float)adc1_codigo[3]) * 100.0f) /
+            ((4095.0f - (float)adc1_codigo[2]) * 100.0f) /
             (4095.0f - 1466.0f);
 
         if (humedad_pct < 0.0f)
@@ -364,9 +383,11 @@ ADC_Read_DMA(&hadc1, 4U, adc1_codigo);
         sprintf(
             texto,
             ">humedad_adc:%u\r\n"
-            ">humedad_pct:%.1f\r\n",
-            (unsigned int)adc1_codigo[3],
-            humedad_pct);
+            ">humedad_pct:%.1f\r\n"
+            ">temperatura_c:%.2f\r\n",
+            (unsigned int)adc1_codigo[2],
+            humedad_pct,
+            temperatura_c);
 
         uartx_write_text(&huart6, texto);
     }
