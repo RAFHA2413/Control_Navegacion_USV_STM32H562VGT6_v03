@@ -335,16 +335,38 @@ ADC_Read_DMA(&hadc1, 4U, adc1_codigo);
     /*
      * PRUEBA SENSOR DE HUMEDAD:
      * PC3 = ADC1_INP13 = Rank 4 = adc1_codigo[3].
-     * Se envia solo el valor ADC crudo a Teleplot por USART6.
+     *
+     * Calibracion experimental:
+     *   ADC = 4095 -> 0 % mojado (seco)
+     *   ADC = 1466 -> 100 % mojado
+     *
+     * La conversion se realiza aqui en main.c, sin modificar adc_x.
      */
     if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
     {
+        float humedad_pct;
+
         teleplot_last_ms = HAL_GetTick();
+
+        humedad_pct =
+            ((4095.0f - (float)adc1_codigo[3]) * 100.0f) /
+            (4095.0f - 1466.0f);
+
+        if (humedad_pct < 0.0f)
+        {
+            humedad_pct = 0.0f;
+        }
+        else if (humedad_pct > 100.0f)
+        {
+            humedad_pct = 100.0f;
+        }
 
         sprintf(
             texto,
-            ">humedad_adc:%u\r\n",
-            (unsigned int)adc1_codigo[3]);
+            ">humedad_adc:%u\r\n"
+            ">humedad_pct:%.1f\r\n",
+            (unsigned int)adc1_codigo[3],
+            humedad_pct);
 
         uartx_write_text(&huart6, texto);
     }
