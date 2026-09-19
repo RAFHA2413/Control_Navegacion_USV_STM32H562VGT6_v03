@@ -11,19 +11,21 @@
 #include "main.h"
 #include "UARTRX.h"
 
+#include "GPS.h"
 //incluir librerias de  interrpcines d euart usados
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
 //llamar interrupciones de usart
 	 uartRX_INTERRUPT(huart,Size);
+   GPS_Interrupt(huart, Size);
 }
 
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+/* void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
   //Manejar errores de UART 
   uartRX_Errores(huart);
-}
+} */
 
 
 #endif 

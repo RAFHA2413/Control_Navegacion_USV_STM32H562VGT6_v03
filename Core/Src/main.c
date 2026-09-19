@@ -27,10 +27,19 @@
 #include <stdio.h>
 #include "imu_bno085_i2c.h"
 #include "TELEMETRIA_USV.h"
-#include "trama_usv.h"
 #include <math.h>
 #include "stm32h5xx_hal_gpio.h"
+#include "string.h"
+#include "stdlib.h"
 #include "uart.h"
+
+
+#include "gps.h"
+
+#include "stdio.h"
+#include "stdlib.h"
+#include "stdint.h"
+
 
 /* USER CODE END Includes */
 
@@ -52,6 +61,8 @@
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
 
+DMA_HandleTypeDef handle_GPDMA1_Channel1;
+
 I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim3;
@@ -63,6 +74,9 @@ UART_HandleTypeDef huart6;
 DMA_HandleTypeDef handle_GPDMA1_Channel0;
 
 /* USER CODE BEGIN PV */
+char texto[600];
+
+
 volatile uint8_t imu_ok = 0U;
 volatile uint8_t imu_addr = 0U;
 volatile uint8_t imu_data_ok = 0U;
@@ -95,16 +109,6 @@ volatile uint16_t imu_raw_length = 0U;
 uint32_t led_rx_ultimo_evento_ms = 0U;
 uint32_t led_rx_ultimo_toggle_ms = 0U;
 uint8_t led_rx_activo = 0U;
-
-/*
- * Integracion de la trama oficial $PUSVU realizada SOLO en main.c.
- * No se modifica UARTRX.c, trama_usv.c, servos.c ni ninguna otra libreria.
- */
-static USV_Comando comando_tierra_rx_main = {0};
-static volatile uint32_t rx_eventos_main = 0U;
-static volatile uint32_t pusvu_validas_main = 0U;
-static volatile uint32_t pusvu_invalidas_main = 0U;
-static volatile int16_t camara_rx_main = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -198,7 +202,25 @@ static void USV_ActualizarTelemetriaIMU(
         (int16_t)pitch_x10,
         (int16_t)roll_x10);
 }
+/* void procesa_rx()
+ {
+  char procesa[100];
+    char texto[100];
+if (strstr(UARTRX1.trama_rx,"$PUSVU"))
+	    {
+	        strcpy(procesa, strtok(UARTRX1.trama_rx, "$"));  //inicia captura de tokens desde el =
+	        strcpy(procesa, strtok(0, ","));  //captura hasta el /
+strcpy(procesa, strtok(0, ","));  //captura hasta el /
+strcpy(procesa, strtok(0, ","));  //captura hasta el /
+strcpy(procesa, strtok(0, ","));  //captura hasta el /
+strcpy(procesa, strtok(0, ","));  //captura hasta el /
+strcpy(procesa, strtok(0, ","));  //captura hasta el /
+ float serv=atof(procesa); // con signo
+ sprintf(texto, "Servo= %.2f\r\n\r\n", serv);
+ uartx_write_text(&huart1, texto);
 
+ } 
+  } */
 /* USER CODE END 0 */
 
 /**
@@ -264,7 +286,9 @@ HAL_Delay(300U);
 // Inicializa la señal PWM en el pin PB0 (SERVO_CAMARA)
 SERVO_init(&SERVO1);
 SERVO_ANG(&SERVO1, 0.0f); // Posiciona inicialmente la cámara al centro (0°)
-uartRX_it_idle_dma_init(&UARTRX1);
+uartx_write_text(&huart6, "INICIANDO\r\n");
+//uartRX_it_idle_dma_init(&UARTRX1);
+ uartRX_it_idle_dma_init(&GPS_UARTRX);
 
 // Inicializa la telemetria oficial $PUSVD por USART1 / XBee
 TELEMETRIA_USV_init(&TELEMETRIA1);
@@ -298,11 +322,8 @@ imu_addr = IMU_GetAddress7bit();
         }
     }
 
-    /* Envio a Teleplot cada 200 ms.
-     * USART6 queda exclusivamente para diagnostico/IMU y no interfiere
-     * con USART1, que se usa para los XBee.
-     */
-    if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
+    /* Envío a Teleplot cada 200 ms */
+    /* if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
     {
         teleplot_last_ms = HAL_GetTick();
 
@@ -316,21 +337,25 @@ imu_addr = IMU_GetAddress7bit();
             ">pitch:%.2f\r\n"
             ">yaw:%.2f\r\n"
             ">rx_eventos:%lu\r\n"
-            ">pusvu_validas:%lu\r\n"
-            ">pusvu_invalidas:%lu\r\n"
+            ">tramas_validas:%lu\r\n"
             ">camara_rx:%d\r\n"
-            ">servo_ccr3:%lu\r\n",
+            ">servo_ccr3:%lu\r\n"
+            ">pb2_estado:%u\r\n"
+            ">enlace_tierra:%u\r\n",
             (unsigned int)imu_ok,
             (unsigned int)imu_addr,
             (unsigned int)imu_data_ok,
             imu_roll,
             imu_pitch,
             imu_yaw,
-            (unsigned long)rx_eventos_main,
-            (unsigned long)pusvu_validas_main,
-            (unsigned long)pusvu_invalidas_main,
-            (int)camara_rx_main,
-            (unsigned long)TIM3->CCR3);
+            (unsigned long)usv_rx_eventos,
+            (unsigned long)usv_tramas_validas,
+            (int)usv_camara_recibida,
+            (unsigned long)TIM3->CCR3,
+            (unsigned int)HAL_GPIO_ReadPin(
+                LED_RX_TIERRA_GPIO_Port,
+                LED_RX_TIERRA_Pin),
+            (unsigned int)led_rx_activo);
 
         if (len > 0)
         {
@@ -340,74 +365,25 @@ imu_addr = IMU_GetAddress7bit();
                 (uint16_t)len,
                 100U);
         }
-    }
+    } */
 
-    // Verifica si USART1 recibio una trama desde Tierra mediante ReceiveToIdle por DMA
-    if (UARTRX1.flag_rx == 1)
+    // Verifica si USART1 recibió una trama desde Tierra mediante ReceiveToIdle por interrupción
+    if (GPS_UARTRX.flag_rx == 1)
     {
-        uint16_t longitud_rx;
-
-        rx_eventos_main++;
-        led_rx_ultimo_evento_ms = HAL_GetTick();
-        led_rx_activo = 1U;
-
-        /*
-         * La libreria UARTRX entrega la cantidad de bytes en num_datos.
-         * Se garantiza terminacion NUL aqui, en main.c, antes de pasar
-         * la cadena al decodificador oficial de la trama.
+      PUSVU();
+	  	  		 sprintf(texto,"%.1f\r\n",ANG_SERVO);
+	  		 uartx_write_text(&huart6,texto);
+  
+      
+      /*
+         * Cada recepción actualiza la marca de tiempo del enlace.
+         * El parpadeo de PB2 se ejecuta abajo, sin bloquear el while.
          */
-        longitud_rx = UARTRX1.num_datos;
-
-        if (longitud_rx >= UARTRX1.sizeT)
-        {
-            longitud_rx = UARTRX1.sizeT - 1U;
-        }
-
-        UARTRX1.trama_rx[longitud_rx] = '\0';
-
-        /*
-         * IMPORTANTE:
-         * No se llama procesa_rx(), porque esa funcion de la libreria
-         * UARTRX vigente interpreta el formato de prueba "SER=".
-         *
-         * Para la integracion real se usa la trama oficial $PUSVU:
-         * USV_LeerComando() verifica estructura, CRC y los 16 campos.
-         */
-        if (USV_LeerComando(
-                (const char *)UARTRX1.trama_rx,
-                &comando_tierra_rx_main) != 0U)
-        {
-            pusvu_validas_main++;
-            camara_rx_main = comando_tierra_rx_main.camara;
-
-            /*
-             * Campo 6 de $PUSVU:
-             * camara = grados enteros de -90 a +90.
-             *
-             * SERVO_ANG() ya usa la calibracion validada del MG996R:
-             * -90 -> 500 us, 0 -> 1500 us, +90 -> 2500 us.
-             */
-            SERVO_ANG(
-                &SERVO1,
-                (float)camara_rx_main);
-
-            /* Indicacion visual de una trama oficial correctamente decodificada. */
-            HAL_GPIO_TogglePin(
-                LED_GPIO_Port,
-                LED_Pin);
-        }
-        else
-        {
-            /*
-             * Si este contador aumenta, la comunicacion fisica funciona
-             * pero existe una diferencia de formato, CRC o escala entre
-             * la estacion de tierra y el bote.
-             */
-            pusvu_invalidas_main++;
-        }
-
-        /* Rearma la recepcion DMA para la siguiente trama. */
-        uartRX_DMA_Re_init(&UARTRX1);
+       // led_rx_ultimo_evento_ms = HAL_GetTick();
+       // led_rx_activo = 1U;
+HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+       //procesa_rx();                 // Decodifica $PUSVU y distribuye las ordenes del control de tierra
+        uartRX_DMA_Re_init(&GPS_UARTRX); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
     }
 
     /*
@@ -605,6 +581,28 @@ static void MX_GPDMA1_Init(void)
   /* USER CODE BEGIN GPDMA1_Init 1 */
 
   /* USER CODE END GPDMA1_Init 1 */
+  handle_GPDMA1_Channel1.Instance = GPDMA1_Channel1;
+  handle_GPDMA1_Channel1.Init.Request = DMA_REQUEST_SW;
+  handle_GPDMA1_Channel1.Init.BlkHWRequest = DMA_BREQ_SINGLE_BURST;
+  handle_GPDMA1_Channel1.Init.Direction = DMA_MEMORY_TO_MEMORY;
+  handle_GPDMA1_Channel1.Init.SrcInc = DMA_SINC_FIXED;
+  handle_GPDMA1_Channel1.Init.DestInc = DMA_DINC_FIXED;
+  handle_GPDMA1_Channel1.Init.SrcDataWidth = DMA_SRC_DATAWIDTH_BYTE;
+  handle_GPDMA1_Channel1.Init.DestDataWidth = DMA_DEST_DATAWIDTH_BYTE;
+  handle_GPDMA1_Channel1.Init.Priority = DMA_LOW_PRIORITY_LOW_WEIGHT;
+  handle_GPDMA1_Channel1.Init.SrcBurstLength = 1;
+  handle_GPDMA1_Channel1.Init.DestBurstLength = 1;
+  handle_GPDMA1_Channel1.Init.TransferAllocatedPort = DMA_SRC_ALLOCATED_PORT0|DMA_DEST_ALLOCATED_PORT0;
+  handle_GPDMA1_Channel1.Init.TransferEventMode = DMA_TCEM_BLOCK_TRANSFER;
+  handle_GPDMA1_Channel1.Init.Mode = DMA_NORMAL;
+  if (HAL_DMA_Init(&handle_GPDMA1_Channel1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_DMA_ConfigChannelAttributes(&handle_GPDMA1_Channel1, DMA_CHANNEL_NPRIV) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE BEGIN GPDMA1_Init 2 */
 
   /* USER CODE END GPDMA1_Init 2 */

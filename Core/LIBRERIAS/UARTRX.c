@@ -18,11 +18,11 @@ extern SERVOS SERVO1;
 
 //DEFINE LOS USART  A USAR
 extern UART_HandleTypeDef huart1;
-//extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart6;
 
 //inciar uart de recepcion por interrupcion  y tamaño del buffer
-UARTRXS UARTRX1 = {&huart1,USART1,500};
-
+UARTRXS GPS_UARTRX = {&huart1,USART1,600}; //en que puerto y tamaño sizeT es el tamaño del buffer de recepcion
+UARTRXS UARTRX1 = {&huart6,USART6,600}; //en que puerto y tamaño sizeT es el tamaño del buffer de recepcion
 
 
 //*********************************************************
@@ -59,11 +59,11 @@ void uartRX_INTERRUPT(UART_HandleTypeDef *huart,uint16_t sizex)
 {
 
 	//colocar una por cada usart usado
-	if ((UARTRX1.flag_rx==0)&& (huart->Instance == UARTRX1.usart_instance))//si es el uart de datos
+	/* if ((UARTRX1.flag_rx==0)&& (huart->Instance == UARTRX1.usart_instance))//si es el uart de datos
 		{
 	     UARTRX1.num_datos=sizex;
 	     UARTRX1.flag_rx=1;
-		 }
+		 } */
 
 //colocar si usa mas uart
 		 /*
@@ -75,24 +75,11 @@ void uartRX_INTERRUPT(UART_HandleTypeDef *huart,uint16_t sizex)
 	     UARTRX2.flag_rx=1;
 		 }
 */
+//}
 }
 
- void uartRX_Errores(UART_HandleTypeDef *huart)
- {
-//colocar una por cada usart usado
-	if (huart->Instance == UARTRX1.usart_instance)//si es el uart de datos
-		{
-		__HAL_UART_CLEAR_OREFLAG(UARTRX1.huart); // Limpia Overrun Error
-        __HAL_UART_FLUSH_DRREGISTER(UARTRX1.huart); // Limpia buffer de entrada
-
-		  if(UARTRX1.flag_rx==0)
-		{
-		HAL_UART_DMAStop(UARTRX1.huart);  //para la recepcion temporarmente
-		HAL_UARTEx_ReceiveToIdle_DMA(UARTRX1.huart, (uint8_t*)UARTRX1.trama_rx, UARTRX1.sizeT);//inica la recepcion por idle
-		__HAL_DMA_DISABLE_IT(UARTRX1.huart->hdmarx, DMA_IT_HT); // deshabilita HT, deja activo IDLE + buffer lleno
-
-		}
-	  }
+/*  
+	  } */
 //si usa otro usart
 /*
 	 	if (huart->Instance == UARTRX2.usart_instance)//si es el uart de datos
@@ -110,12 +97,9 @@ void uartRX_INTERRUPT(UART_HandleTypeDef *huart,uint16_t sizex)
 	  } 
 */
 
- }
-
 #endif /* LIBRERIAS_UARTRX1_C_ */
 
-
-void procesa_rx()
+/* void procesa_rx1()
 {
 //variable para procesar inf
 	char procesa[100];
@@ -155,3 +139,4 @@ void procesa_rx()
 
 
 
+ */

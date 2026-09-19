@@ -65,7 +65,7 @@ UARTRXS UARTRX1 = {&huart1,USART1,100};
 	     UARTRX2.flag_rx=1;
 		 }
 
-//  En el procedimeinto uartRX_Errores  igual colocar una por cada usart usado
+
 
 
 		 */
@@ -129,6 +129,6 @@ if (UARTRX1.flag_rx==1)
 void uartRX_it_idle_dma_init(UARTRXS *SERIAL);
 void uartRX_DMA_Re_init(UARTRXS *SERIAL);
 void uartRX_INTERRUPT(UART_HandleTypeDef *huart,uint16_t sizex);
-void uartRX_Errores(UART_HandleTypeDef *huart);
+void uartRX_DMA_STOP(UARTRXS *SERIAL);
  
 #endif /* LIBRERIAS_UARTRX_H_ */
