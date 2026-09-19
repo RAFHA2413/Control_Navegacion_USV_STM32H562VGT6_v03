@@ -92,6 +92,9 @@ uint32_t imu_last_ms = 0U;
 uint32_t teleplot_last_ms = 0U;
 uint32_t temperatura_last_ms = 0U;
 float temperatura_c = -100.0f;
+uint32_t servo_test_last_ms = 0U;
+uint8_t servo_test_estado = 0U;
+float servo_test_angulo = 0.0f;
 char teleplot_tx[240];
 uint8_t imu_raw[23];
 
@@ -340,6 +343,44 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
+     * PRUEBA LOCAL SERVO MG996R:
+     * Sin estacion de tierra. Usa exclusivamente la libreria servos.
+     * Secuencia cada 3 s: -90 -> 0 -> +90 -> 0 grados.
+     * No usa HAL_Delay para el movimiento del servo.
+     */
+    if ((HAL_GetTick() - servo_test_last_ms) >= 3000U)
+    {
+        servo_test_last_ms = HAL_GetTick();
+
+        switch (servo_test_estado)
+        {
+            case 0U:
+                servo_test_angulo = -90.0f;
+                break;
+
+            case 1U:
+                servo_test_angulo = 0.0f;
+                break;
+
+            case 2U:
+                servo_test_angulo = 90.0f;
+                break;
+
+            default:
+                servo_test_angulo = 0.0f;
+                break;
+        }
+
+        SERVO_ANG(&SERVO1, servo_test_angulo);
+
+        servo_test_estado++;
+        if (servo_test_estado > 3U)
+        {
+            servo_test_estado = 0U;
+        }
+    }
+
+    /*
      * PRUEBA SENSOR DE TEMPERATURA DS18B20:
      * PC2 = TEMPE = bus 1-Wire.
      * La libreria realiza internamente la conversion y devuelve grados Celsius.
@@ -384,10 +425,14 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             texto,
             ">humedad_adc:%u\r\n"
             ">humedad_pct:%.1f\r\n"
-            ">temperatura_c:%.2f\r\n",
+            ">temperatura_c:%.2f\r\n"
+            ">servo_angulo:%.1f\r\n"
+            ">servo_pwm_us:%lu\r\n",
             (unsigned int)adc1_codigo[2],
             humedad_pct,
-            temperatura_c);
+            temperatura_c,
+            servo_test_angulo,
+            (unsigned long)TIM3->CCR3);
 
         uartx_write_text(&huart6, texto);
     }
