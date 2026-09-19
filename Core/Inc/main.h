@@ -59,6 +59,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define TEMPE_Pin GPIO_PIN_2
+#define TEMPE_GPIO_Port GPIOC
 #define USART2_TX_GNSS_Pin GPIO_PIN_2
 #define USART2_TX_GNSS_GPIO_Port GPIOA
 #define USART2_RX_GNSS_Pin GPIO_PIN_3
