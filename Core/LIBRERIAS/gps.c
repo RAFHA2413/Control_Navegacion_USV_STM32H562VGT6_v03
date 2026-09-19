@@ -310,8 +310,6 @@ uint8_t PUSVU()
 		        //busca primero si es valido el dato PARA VERIFICAR SI EL DATO ES VALIDO SE USA LA TERCERA COMA DE LA TRAMA PUSVU
 		           strcpy(captura, strtok(GPS_buffer, ","));  //inicia captura de tokens
 		           strcpy(captura, strtok(0, ","));  //captura
-				   	luces=atoi(captura);
-					
 		           strcpy(captura, strtok(0, ","));  //captura
 				   strcpy(captura, strtok(0, ","));  //captura
 				   strcpy(captura, strtok(0, ","));  //captura
