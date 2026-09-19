@@ -35,6 +35,7 @@
 
 
 #include "gps.h"
+#include "adc_x.h"
 
 #include "stdio.h"
 #include "stdlib.h"
@@ -297,6 +298,14 @@ TELEMETRIA_USV_init(&TELEMETRIA1);
 // Inicializa BNO085
 imu_ok = IMU_Init();
 imu_addr = IMU_GetAddress7bit();
+
+/*
+ * Inicia ADC1 por DMA usando la libreria adc_x.
+ * CubeMX tiene 4 conversiones:
+ * [0] PA0, [1] PC1, [2] PC2, [3] PC3 (humedad).
+ * Se pasa 4 de forma explicita para no modificar la libreria.
+ */
+ADC_Read_DMA(&hadc1, 4U, adc1_codigo);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -321,6 +330,23 @@ imu_addr = IMU_GetAddress7bit();
                 imu_pitch,
                 imu_yaw);
         }
+    }
+
+    /*
+     * PRUEBA SENSOR DE HUMEDAD:
+     * PC3 = ADC1_INP13 = Rank 4 = adc1_codigo[3].
+     * Se envia solo el valor ADC crudo a Teleplot por USART6.
+     */
+    if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
+    {
+        teleplot_last_ms = HAL_GetTick();
+
+        sprintf(
+            texto,
+            ">humedad_adc:%u\r\n",
+            (unsigned int)adc1_codigo[3]);
+
+        uartx_write_text(&huart6, texto);
     }
 
     /* Envío a Teleplot cada 200 ms */
