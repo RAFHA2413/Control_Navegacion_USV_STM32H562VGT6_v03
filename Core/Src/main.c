@@ -329,12 +329,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /*
-     * DIAGNOSTICO 5.15:
-     * Lectura periodica del BNO085 deshabilitada temporalmente.
-     * IMU_Init() se mantiene activo para aislar especificamente IMU_ReadEuler().
-     */
-#if 0
+    /* Lectura IMU cada 50 ms */
     if ((HAL_GetTick() - imu_last_ms) >= 50U)
     {
         imu_last_ms = HAL_GetTick();
@@ -352,7 +347,6 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
                 imu_yaw);
         }
     }
-#endif
 
     /*
      * PRUEBA LOCAL SERVO MG996R:
