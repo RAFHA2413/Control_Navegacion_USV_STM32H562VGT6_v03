@@ -405,84 +405,15 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
-     * PRUEBA SENSOR DE HUMEDAD:
-     * PC3 = ADC1_INP13 = Rank 3 = adc1_codigo[2].
-     *
-     * Calibracion experimental:
-     *   ADC = 4095 -> 0 % mojado (seco)
-     *   ADC = 1466 -> 100 % mojado
-     *
-     * La conversion se realiza aqui en main.c, sin modificar adc_x.
+     * DIAGNOSTICO 5.16:
+     * Salida minima a Teleplot cada 200 ms.
+     * Se elimina temporalmente el sprintf grande para verificar si
+     * ese bloque estaba deteniendo la ejecucion del while principal.
      */
     if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
     {
-        float humedad_pct;
-
         teleplot_last_ms = HAL_GetTick();
-
-        humedad_pct =
-            ((4095.0f - (float)adc1_codigo[2]) * 100.0f) /
-            (4095.0f - 1466.0f);
-
-        if (humedad_pct < 0.0f)
-        {
-            humedad_pct = 0.0f;
-        }
-        else if (humedad_pct > 100.0f)
-        {
-            humedad_pct = 100.0f;
-        }
-
-        sprintf(
-            texto,
-            ">humedad_adc:%u\r\n"
-            ">humedad_pct:%.1f\r\n"
-            ">temperatura_c:%.2f\r\n"
-            ">servo_angulo:%.1f\r\n"
-            ">servo_pwm_us:%lu\r\n"
-            ">imu_ok:%u\r\n"
-            ">imu_addr:%u\r\n"
-            ">imu_data_ok:%u\r\n"
-            ">roll:%.2f\r\n"
-            ">pitch:%.2f\r\n"
-            ">yaw:%.2f\r\n"
-            ">gnss_rx_eventos:%lu\r\n"
-            ">gnss_rx_bytes:%u\r\n"
-            ">gps_rmc_ok:%u\r\n"
-            ">gps_gga_ok:%u\r\n"
-            ">gps_fix:%d\r\n"
-            ">gps_satelites:%d\r\n"
-            ">gps_hdop:%.2f\r\n"
-            ">gps_latitud:%.6f\r\n"
-            ">gps_longitud:%.6f\r\n"
-            ">gps_altitud_m:%.2f\r\n"
-            ">gps_velocidad_kph:%.2f\r\n"
-            ">gps_rumbo:%.2f\r\n",
-            (unsigned int)adc1_codigo[2],
-            humedad_pct,
-            temperatura_c,
-            servo_test_angulo,
-            (unsigned long)TIM3->CCR3,
-            (unsigned int)imu_ok,
-            (unsigned int)imu_addr,
-            (unsigned int)imu_data_ok,
-            imu_roll,
-            imu_pitch,
-            imu_yaw,
-            (unsigned long)gnss_rx_eventos,
-            (unsigned int)GNSS_UARTRX.num_datos,
-            (unsigned int)gps_rmc_ok,
-            (unsigned int)gps_gga_ok,
-            (int)gps_modo,
-            (int)gps_satelites,
-            gps_hor_dilu,
-            latitud,
-            longitud,
-            gps_altura,
-            gps_vel_kph,
-            gps_rumbo);
-
-        uartx_write_text(&huart6, texto);
+        uartx_write_text(&huart6, ">loop:1\r\n");
     }
 
     /* Envío a Teleplot cada 200 ms */
