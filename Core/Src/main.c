@@ -322,6 +322,20 @@ TEMPE_Init();
  * Se pasa 3 de forma explicita para no modificar la libreria adc_x.
  */
 ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
+
+/*
+ * PRUEBA DE VIDA DEL MICRO:
+ * Verifica que todo USER CODE BEGIN 2 termina correctamente,
+ * incluida la inicializacion de servo, USART1 RX, telemetria,
+ * IMU, temperatura y ADC. GNSS RX DMA sigue deshabilitado
+ * temporalmente para diagnostico.
+ */
+while (1)
+{
+    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    HAL_Delay(500U);
+}
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
