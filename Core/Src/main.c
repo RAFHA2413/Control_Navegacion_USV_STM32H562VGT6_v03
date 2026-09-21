@@ -412,50 +412,23 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
-     * PRUEBA LOCAL MOTORES 6.6 - MAXIMA AVANTE INTERCALADA:
+     * PRUEBA LOCAL MOTORES 6.7 - GIRO SOBRE SU EJE A VELOCIDAD FIJA:
      *
-     * Secuencia cada 3 s:
-     *   Estado 0: Babor MAX AVANTE (2000 us), Estribor NEUTRO (1500 us)
-     *   Estado 1: Ambos NEUTRO (1500 us)
-     *   Estado 2: Babor NEUTRO (1500 us), Estribor MAX AVANTE (2000 us)
-     *   Estado 3: Ambos NEUTRO (1500 us)
-     *   Repite.
+     * Tras 3 s iniciales en NEUTRO:
+     *   Babor    = AVANTE suave 1550 us
+     *   Estribor = REVERSA suave 1450 us
      *
-     * Los intervalos de NEUTRO evitan pasar directamente la carga maxima
-     * de un motor al otro. No se usa HAL_Delay y no se ejecuta
-     * USV_Motor_Calibrar().
+     * Ambos quedan fijos con la misma magnitud respecto a NEUTRO
+     * (+50 us / -50 us), sin intercalarse.
      */
     if ((motores_pwm_activos != 0U) &&
+        (motores_test_estado == 0U) &&
         ((HAL_GetTick() - motores_test_last_ms) >= 3000U))
     {
         motores_test_last_ms = HAL_GetTick();
 
-        switch (motores_test_estado)
-        {
-            case 0U:
-                motor_babor_pwm_us = PWM_MAX_ADELANTE;
-                motor_estribor_pwm_us = PWM_NEUTRO;
-                motores_test_estado = 1U;
-                break;
-
-            case 1U:
-                motor_babor_pwm_us = PWM_NEUTRO;
-                motor_estribor_pwm_us = PWM_NEUTRO;
-                motores_test_estado = 2U;
-                break;
-
-            case 2U:
-                motor_babor_pwm_us = PWM_NEUTRO;
-                motor_estribor_pwm_us = PWM_MAX_ADELANTE;
-                motores_test_estado = 3U;
-                break;
-
-            default:
-                motor_babor_pwm_us = PWM_NEUTRO;
-                motor_estribor_pwm_us = PWM_NEUTRO;
-                motores_test_estado = 0U;
-                break;
-        }
+        motor_babor_pwm_us = 1550U;
+        motor_estribor_pwm_us = 1450U;
 
         USV_Motor_Set(
             &htim3,
@@ -466,6 +439,8 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             &htim3,
             TIM_CHANNEL_4,
             motor_estribor_pwm_us);
+
+        motores_test_estado = 1U;
     }
 
     /*
