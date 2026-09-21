@@ -302,7 +302,7 @@ SERVO_ANG(&SERVO1, 0.0f); // Posiciona inicialmente la cámara al centro (0°)
 uartx_write_text(&huart6, "INICIANDO\r\n");
 //uartRX_it_idle_dma_init(&UARTRX1);
 uartRX_it_idle_dma_init(&GPS_UARTRX);   // USART1 / estacion de tierra
-// uartRX_it_idle_dma_init(&GNSS_UARTRX);  // USART2 / GPS L76K - deshabilitado temporalmente para diagnostico
+uartRX_it_idle_dma_init(&GNSS_UARTRX);   // USART2 / GPS L76K
 
 // Inicializa la telemetria oficial $PUSVD por USART1 / XBee
 TELEMETRIA_USV_init(&TELEMETRIA1);
