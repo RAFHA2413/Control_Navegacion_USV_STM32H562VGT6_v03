@@ -37,6 +37,7 @@
 #include "gps.h"
 #include "adc_x.h"
 #include "temp_ds18b20.h"
+#include "usv_motores.h"
 
 #include "stdio.h"
 #include "stdlib.h"
@@ -99,6 +100,9 @@ uint32_t gnss_rx_eventos = 0U;
 uint32_t servo_test_last_ms = 0U;
 uint8_t servo_test_estado = 0U;
 float servo_test_angulo = 0.0f;
+uint16_t motor_babor_pwm_us = PWM_NEUTRO;
+uint16_t motor_estribor_pwm_us = PWM_NEUTRO;
+uint8_t motores_pwm_activos = 0U;
 char teleplot_tx[240];
 uint8_t imu_raw[23];
 
@@ -299,6 +303,25 @@ HAL_Delay(300U);
 // Inicializa la señal PWM en el pin PB0 (SERVO_CAMARA)
 SERVO_init(&SERVO1);
 SERVO_ANG(&SERVO1, 0.0f); // Posiciona inicialmente la cámara al centro (0°)
+
+/*
+ * PRUEBA LOCAL MOTORES 6.2:
+ * Inicia únicamente las salidas PWM de propulsion en NEUTRO.
+ * No se ejecuta USV_Motor_Calibrar() y no se ordena movimiento.
+ * Babor    = PB4 / TIM3_CH1
+ * Estribor = PB1 / TIM3_CH4
+ */
+if ((HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1) == HAL_OK) &&
+    (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4) == HAL_OK))
+{
+    USV_Motor_Set(&htim3, TIM_CHANNEL_1, PWM_NEUTRO);
+    USV_Motor_Set(&htim3, TIM_CHANNEL_4, PWM_NEUTRO);
+
+    motor_babor_pwm_us = PWM_NEUTRO;
+    motor_estribor_pwm_us = PWM_NEUTRO;
+    motores_pwm_activos = 1U;
+}
+
 uartx_write_text(&huart6, "INICIANDO\r\n");
 //uartRX_it_idle_dma_init(&UARTRX1);
 uartRX_it_idle_dma_init(&GPS_UARTRX);   // USART1 / estacion de tierra
@@ -431,12 +454,18 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             ">humedad_pct:%.1f\r\n"
             ">temperatura_c:%.2f\r\n"
             ">servo_angulo:%.1f\r\n"
-            ">servo_pwm_us:%lu\r\n",
+            ">servo_pwm_us:%lu\r\n"
+            ">motores_pwm_activos:%u\r\n"
+            ">motor_babor_pwm_us:%u\r\n"
+            ">motor_estribor_pwm_us:%u\r\n",
             (unsigned int)adc1_codigo[2],
             humedad_pct,
             temperatura_c,
             servo_test_angulo,
-            (unsigned long)TIM3->CCR3);
+            (unsigned long)TIM3->CCR3,
+            (unsigned int)motores_pwm_activos,
+            (unsigned int)motor_babor_pwm_us,
+            (unsigned int)motor_estribor_pwm_us);
 
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
