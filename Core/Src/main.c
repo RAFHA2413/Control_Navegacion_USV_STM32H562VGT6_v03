@@ -405,15 +405,115 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
-     * DIAGNOSTICO 5.16:
-     * Salida minima a Teleplot cada 200 ms.
-     * Se elimina temporalmente el sprintf grande para verificar si
-     * ese bloque estaba deteniendo la ejecucion del while principal.
+     * TELEPLOT SEGURO:
+     * Se divide la salida en bloques pequenos y se usa snprintf()
+     * para evitar que una sola cadena grande desborde el buffer texto.
      */
     if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
     {
+        float humedad_pct;
+        int len;
+
         teleplot_last_ms = HAL_GetTick();
-        uartx_write_text(&huart6, ">loop:1\r\n");
+
+        humedad_pct =
+            ((4095.0f - (float)adc1_codigo[2]) * 100.0f) /
+            (4095.0f - 1466.0f);
+
+        if (humedad_pct < 0.0f)
+        {
+            humedad_pct = 0.0f;
+        }
+        else if (humedad_pct > 100.0f)
+        {
+            humedad_pct = 100.0f;
+        }
+
+        /* Bloque 1: sensores basicos y servo. */
+        len = snprintf(
+            texto,
+            sizeof(texto),
+            ">humedad_adc:%u\r\n"
+            ">humedad_pct:%.1f\r\n"
+            ">temperatura_c:%.2f\r\n"
+            ">servo_angulo:%.1f\r\n"
+            ">servo_pwm_us:%lu\r\n",
+            (unsigned int)adc1_codigo[2],
+            humedad_pct,
+            temperatura_c,
+            servo_test_angulo,
+            (unsigned long)TIM3->CCR3);
+
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* Bloque 2: diagnostico IMU. */
+        len = snprintf(
+            texto,
+            sizeof(texto),
+            ">imu_ok:%u\r\n"
+            ">imu_addr:%u\r\n"
+            ">imu_data_ok:%u\r\n"
+            ">roll:%.2f\r\n"
+            ">pitch:%.2f\r\n"
+            ">yaw:%.2f\r\n",
+            (unsigned int)imu_ok,
+            (unsigned int)imu_addr,
+            (unsigned int)imu_data_ok,
+            imu_roll,
+            imu_pitch,
+            imu_yaw);
+
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* Bloque 3: estado de recepcion GNSS. */
+        len = snprintf(
+            texto,
+            sizeof(texto),
+            ">gnss_rx_eventos:%lu\r\n"
+            ">gnss_rx_bytes:%u\r\n"
+            ">gps_rmc_ok:%u\r\n"
+            ">gps_gga_ok:%u\r\n"
+            ">gps_fix:%d\r\n"
+            ">gps_satelites:%d\r\n"
+            ">gps_hdop:%.2f\r\n",
+            (unsigned long)gnss_rx_eventos,
+            (unsigned int)GNSS_UARTRX.num_datos,
+            (unsigned int)gps_rmc_ok,
+            (unsigned int)gps_gga_ok,
+            (int)gps_modo,
+            (int)gps_satelites,
+            gps_hor_dilu);
+
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* Bloque 4: datos de navegacion GNSS. */
+        len = snprintf(
+            texto,
+            sizeof(texto),
+            ">gps_latitud:%.6f\r\n"
+            ">gps_longitud:%.6f\r\n"
+            ">gps_altitud_m:%.2f\r\n"
+            ">gps_velocidad_kph:%.2f\r\n"
+            ">gps_rumbo:%.2f\r\n",
+            latitud,
+            longitud,
+            gps_altura,
+            gps_vel_kph,
+            gps_rumbo);
+
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
     }
 
     /* Envío a Teleplot cada 200 ms */
