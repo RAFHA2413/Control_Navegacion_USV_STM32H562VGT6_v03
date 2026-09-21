@@ -103,8 +103,8 @@ float servo_test_angulo = 0.0f;
 uint16_t motor_babor_pwm_us = PWM_NEUTRO;
 uint16_t motor_estribor_pwm_us = PWM_NEUTRO;
 uint8_t motores_pwm_activos = 0U;
-uint32_t motor_estribor_test_last_ms = 0U;
-uint8_t motor_estribor_test_estado = 0U;
+uint32_t motores_test_last_ms = 0U;
+uint8_t motores_test_estado = 0U;
 char teleplot_tx[240];
 uint8_t imu_raw[23];
 
@@ -412,30 +412,31 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
-     * PRUEBA LOCAL MOTOR ESTRIBOR 6.4:
-     * PB1 / TIM3_CH4 alterna cada 3 s entre NEUTRO (1500 us)
-     * y una orden suave de AVANTE (1550 us).
-     * El motor de babor permanece siempre en NEUTRO (1500 us).
+     * PRUEBA LOCAL AMBOS MOTORES 6.5:
+     * Babor (PB4 / TIM3_CH1) y Estribor (PB1 / TIM3_CH4)
+     * alternan sincronizados cada 3 s entre:
+     *   NEUTRO = 1500 us
+     *   AVANTE suave = 1550 us
      *
      * No se usa HAL_Delay y no se ejecuta USV_Motor_Calibrar().
      */
     if ((motores_pwm_activos != 0U) &&
-        ((HAL_GetTick() - motor_estribor_test_last_ms) >= 3000U))
+        ((HAL_GetTick() - motores_test_last_ms) >= 3000U))
     {
-        motor_estribor_test_last_ms = HAL_GetTick();
+        motores_test_last_ms = HAL_GetTick();
 
-        if (motor_estribor_test_estado == 0U)
+        if (motores_test_estado == 0U)
         {
+            motor_babor_pwm_us = 1550U;
             motor_estribor_pwm_us = 1550U;
-            motor_estribor_test_estado = 1U;
+            motores_test_estado = 1U;
         }
         else
         {
+            motor_babor_pwm_us = PWM_NEUTRO;
             motor_estribor_pwm_us = PWM_NEUTRO;
-            motor_estribor_test_estado = 0U;
+            motores_test_estado = 0U;
         }
-
-        motor_babor_pwm_us = PWM_NEUTRO;
 
         USV_Motor_Set(
             &htim3,
