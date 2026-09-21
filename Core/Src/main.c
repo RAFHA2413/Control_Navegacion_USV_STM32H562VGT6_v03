@@ -267,6 +267,17 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+
+  /* PRUEBA DE VIDA DEL MICRO:
+   * Se detiene aqui intencionalmente para verificar que el firmware
+   * alcanza MX_GPIO_Init() y que PB2 puede conmutar.
+   */
+  while (1)
+  {
+    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    HAL_Delay(500U);
+  }
+
   MX_GPDMA1_Init();
   MX_ICACHE_Init();
   MX_USART1_UART_Init();
