@@ -103,6 +103,8 @@ float servo_test_angulo = 0.0f;
 uint16_t motor_babor_pwm_us = PWM_NEUTRO;
 uint16_t motor_estribor_pwm_us = PWM_NEUTRO;
 uint8_t motores_pwm_activos = 0U;
+uint32_t motor_babor_test_last_ms = 0U;
+uint8_t motor_babor_test_estado = 0U;
 char teleplot_tx[240];
 uint8_t imu_raw[23];
 
@@ -407,6 +409,43 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         {
             servo_test_estado = 0U;
         }
+    }
+
+    /*
+     * PRUEBA LOCAL MOTOR BABOR 6.3:
+     * PB4 / TIM3_CH1 alterna cada 3 s entre NEUTRO (1500 us)
+     * y una orden suave de AVANTE (1550 us).
+     * El motor de estribor permanece siempre en NEUTRO (1500 us).
+     *
+     * No se usa HAL_Delay y no se ejecuta USV_Motor_Calibrar().
+     */
+    if ((motores_pwm_activos != 0U) &&
+        ((HAL_GetTick() - motor_babor_test_last_ms) >= 3000U))
+    {
+        motor_babor_test_last_ms = HAL_GetTick();
+
+        if (motor_babor_test_estado == 0U)
+        {
+            motor_babor_pwm_us = 1550U;
+            motor_babor_test_estado = 1U;
+        }
+        else
+        {
+            motor_babor_pwm_us = PWM_NEUTRO;
+            motor_babor_test_estado = 0U;
+        }
+
+        motor_estribor_pwm_us = PWM_NEUTRO;
+
+        USV_Motor_Set(
+            &htim3,
+            TIM_CHANNEL_1,
+            motor_babor_pwm_us);
+
+        USV_Motor_Set(
+            &htim3,
+            TIM_CHANNEL_4,
+            motor_estribor_pwm_us);
     }
 
     /*
