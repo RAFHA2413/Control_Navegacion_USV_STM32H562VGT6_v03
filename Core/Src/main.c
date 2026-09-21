@@ -277,16 +277,6 @@ int main(void)
   MX_USART3_UART_Init();
   MX_ADC1_Init();
 
-  /* PRUEBA DE VIDA DEL MICRO:
-   * Se detiene aqui intencionalmente para verificar que el firmware
-   * supera toda la inicializacion de perifericos, incluido USART2.
-   * La IRQ de GPDMA1 Channel 2 permanece temporalmente deshabilitada.
-   */
-  while (1)
-  {
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    HAL_Delay(500U);
-  }
   /* USER CODE BEGIN 2 */
 
 /*
@@ -312,7 +302,7 @@ SERVO_ANG(&SERVO1, 0.0f); // Posiciona inicialmente la cámara al centro (0°)
 uartx_write_text(&huart6, "INICIANDO\r\n");
 //uartRX_it_idle_dma_init(&UARTRX1);
 uartRX_it_idle_dma_init(&GPS_UARTRX);   // USART1 / estacion de tierra
-uartRX_it_idle_dma_init(&GNSS_UARTRX);  // USART2 / GPS L76K
+// uartRX_it_idle_dma_init(&GNSS_UARTRX);  // USART2 / GPS L76K - deshabilitado temporalmente para diagnostico
 
 // Inicializa la telemetria oficial $PUSVD por USART1 / XBee
 TELEMETRIA_USV_init(&TELEMETRIA1);
