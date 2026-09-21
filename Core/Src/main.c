@@ -412,30 +412,49 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
-     * PRUEBA LOCAL AMBOS MOTORES 6.5:
-     * Babor (PB4 / TIM3_CH1) y Estribor (PB1 / TIM3_CH4)
-     * alternan sincronizados cada 3 s entre:
-     *   NEUTRO = 1500 us
-     *   AVANTE suave = 1550 us
+     * PRUEBA LOCAL MOTORES 6.6 - MAXIMA AVANTE INTERCALADA:
      *
-     * No se usa HAL_Delay y no se ejecuta USV_Motor_Calibrar().
+     * Secuencia cada 3 s:
+     *   Estado 0: Babor MAX AVANTE (2000 us), Estribor NEUTRO (1500 us)
+     *   Estado 1: Ambos NEUTRO (1500 us)
+     *   Estado 2: Babor NEUTRO (1500 us), Estribor MAX AVANTE (2000 us)
+     *   Estado 3: Ambos NEUTRO (1500 us)
+     *   Repite.
+     *
+     * Los intervalos de NEUTRO evitan pasar directamente la carga maxima
+     * de un motor al otro. No se usa HAL_Delay y no se ejecuta
+     * USV_Motor_Calibrar().
      */
     if ((motores_pwm_activos != 0U) &&
         ((HAL_GetTick() - motores_test_last_ms) >= 3000U))
     {
         motores_test_last_ms = HAL_GetTick();
 
-        if (motores_test_estado == 0U)
+        switch (motores_test_estado)
         {
-            motor_babor_pwm_us = 1550U;
-            motor_estribor_pwm_us = 1550U;
-            motores_test_estado = 1U;
-        }
-        else
-        {
-            motor_babor_pwm_us = PWM_NEUTRO;
-            motor_estribor_pwm_us = PWM_NEUTRO;
-            motores_test_estado = 0U;
+            case 0U:
+                motor_babor_pwm_us = PWM_MAX_ADELANTE;
+                motor_estribor_pwm_us = PWM_NEUTRO;
+                motores_test_estado = 1U;
+                break;
+
+            case 1U:
+                motor_babor_pwm_us = PWM_NEUTRO;
+                motor_estribor_pwm_us = PWM_NEUTRO;
+                motores_test_estado = 2U;
+                break;
+
+            case 2U:
+                motor_babor_pwm_us = PWM_NEUTRO;
+                motor_estribor_pwm_us = PWM_MAX_ADELANTE;
+                motores_test_estado = 3U;
+                break;
+
+            default:
+                motor_babor_pwm_us = PWM_NEUTRO;
+                motor_estribor_pwm_us = PWM_NEUTRO;
+                motores_test_estado = 0U;
+                break;
         }
 
         USV_Motor_Set(
