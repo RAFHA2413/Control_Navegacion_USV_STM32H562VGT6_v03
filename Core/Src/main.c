@@ -323,27 +323,19 @@ TEMPE_Init();
  */
 ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
 
-/*
- * PRUEBA DE VIDA DEL MICRO:
- * Verifica que todo USER CODE BEGIN 2 termina correctamente,
- * incluida la inicializacion de servo, USART1 RX, telemetria,
- * IMU, temperatura y ADC. GNSS RX DMA sigue deshabilitado
- * temporalmente para diagnostico.
- */
-while (1)
-{
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    HAL_Delay(500U);
-}
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* Lectura IMU cada 50 ms */
-   if ((HAL_GetTick() - imu_last_ms) >= 50U)
+    /*
+     * DIAGNOSTICO 5.15:
+     * Lectura periodica del BNO085 deshabilitada temporalmente.
+     * IMU_Init() se mantiene activo para aislar especificamente IMU_ReadEuler().
+     */
+#if 0
+    if ((HAL_GetTick() - imu_last_ms) >= 50U)
     {
         imu_last_ms = HAL_GetTick();
 
@@ -354,13 +346,13 @@ while (1)
         {
             imu_data_ok = 1U;
 
-            /* Carga yaw, pitch y roll reales en la estructura $PUSVD. */
             USV_ActualizarTelemetriaIMU(
                 imu_roll,
                 imu_pitch,
                 imu_yaw);
         }
     }
+#endif
 
     /*
      * PRUEBA LOCAL SERVO MG996R:
