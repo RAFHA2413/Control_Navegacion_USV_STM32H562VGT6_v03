@@ -427,12 +427,24 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             ">humedad_pct:%.1f\r\n"
             ">temperatura_c:%.2f\r\n"
             ">servo_angulo:%.1f\r\n"
-            ">servo_pwm_us:%lu\r\n",
+            ">servo_pwm_us:%lu\r\n"
+            ">imu_ok:%u\r\n"
+            ">imu_addr:%u\r\n"
+            ">imu_data_ok:%u\r\n"
+            ">roll:%.2f\r\n"
+            ">pitch:%.2f\r\n"
+            ">yaw:%.2f\r\n",
             (unsigned int)adc1_codigo[2],
             humedad_pct,
             temperatura_c,
             servo_test_angulo,
-            (unsigned long)TIM3->CCR3);
+            (unsigned long)TIM3->CCR3,
+            (unsigned int)imu_ok,
+            (unsigned int)imu_addr,
+            (unsigned int)imu_data_ok,
+            imu_roll,
+            imu_pitch,
+            imu_yaw);
 
         uartx_write_text(&huart6, texto);
     }
