@@ -270,7 +270,7 @@ int main(void)
   MX_GPDMA1_Init();
   MX_ICACHE_Init();
   MX_USART1_UART_Init();
-  MX_USART2_UART_Init();
+  //MX_USART2_UART_Init();
   MX_USART6_UART_Init();
   MX_I2C1_Init();
   MX_TIM3_Init();
@@ -753,8 +753,8 @@ static void MX_GPDMA1_Init(void)
   /* GPDMA1 interrupt Init */
     HAL_NVIC_SetPriority(GPDMA1_Channel0_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(GPDMA1_Channel0_IRQn);
-    HAL_NVIC_SetPriority(GPDMA1_Channel2_IRQn, 0, 0);
-    HAL_NVIC_EnableIRQ(GPDMA1_Channel2_IRQn);
+    //HAL_NVIC_SetPriority(GPDMA1_Channel2_IRQn, 0, 0);
+    //HAL_NVIC_EnableIRQ(GPDMA1_Channel2_IRQn);
 
   /* USER CODE BEGIN GPDMA1_Init 1 */
 
