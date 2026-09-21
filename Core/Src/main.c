@@ -270,7 +270,7 @@ int main(void)
   MX_GPDMA1_Init();
   MX_ICACHE_Init();
   MX_USART1_UART_Init();
-  //MX_USART2_UART_Init();
+  MX_USART2_UART_Init();
   MX_USART6_UART_Init();
   MX_I2C1_Init();
   MX_TIM3_Init();
@@ -279,9 +279,8 @@ int main(void)
 
   /* PRUEBA DE VIDA DEL MICRO:
    * Se detiene aqui intencionalmente para verificar que el firmware
-   * supera MX_GPIO_Init(), MX_GPDMA1_Init(), MX_ICACHE_Init(),
-   * MX_USART1_UART_Init(), MX_USART6_UART_Init(), MX_I2C1_Init(),
-   * MX_TIM3_Init(), MX_USART3_UART_Init() y MX_ADC1_Init().
+   * supera toda la inicializacion de perifericos, incluido USART2.
+   * La IRQ de GPDMA1 Channel 2 permanece temporalmente deshabilitada.
    */
   while (1)
   {
