@@ -269,18 +269,18 @@ int main(void)
   MX_GPIO_Init();
   MX_GPDMA1_Init();
   MX_ICACHE_Init();
+  MX_USART1_UART_Init();
 
   /* PRUEBA DE VIDA DEL MICRO:
    * Se detiene aqui intencionalmente para verificar que el firmware
-   * supera MX_GPIO_Init(), MX_GPDMA1_Init() y MX_ICACHE_Init().
+   * supera MX_GPIO_Init(), MX_GPDMA1_Init(), MX_ICACHE_Init()
+   * y MX_USART1_UART_Init().
    */
   while (1)
   {
     HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
     HAL_Delay(500U);
   }
-
-  MX_USART1_UART_Init();
   //MX_USART2_UART_Init();
   MX_USART6_UART_Init();
   MX_I2C1_Init();
