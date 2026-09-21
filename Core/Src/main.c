@@ -93,6 +93,9 @@ uint32_t imu_last_ms = 0U;
 uint32_t teleplot_last_ms = 0U;
 uint32_t temperatura_last_ms = 0U;
 float temperatura_c = -100.0f;
+uint8_t gps_rmc_ok = 0U;
+uint8_t gps_gga_ok = 0U;
+uint32_t gnss_rx_eventos = 0U;
 uint32_t servo_test_last_ms = 0U;
 uint8_t servo_test_estado = 0U;
 float servo_test_angulo = 0.0f;
@@ -297,7 +300,8 @@ SERVO_init(&SERVO1);
 SERVO_ANG(&SERVO1, 0.0f); // Posiciona inicialmente la cámara al centro (0°)
 uartx_write_text(&huart6, "INICIANDO\r\n");
 //uartRX_it_idle_dma_init(&UARTRX1);
- uartRX_it_idle_dma_init(&GPS_UARTRX);
+uartRX_it_idle_dma_init(&GPS_UARTRX);   // USART1 / estacion de tierra
+uartRX_it_idle_dma_init(&GNSS_UARTRX);  // USART2 / GPS L76K
 
 // Inicializa la telemetria oficial $PUSVD por USART1 / XBee
 TELEMETRIA_USV_init(&TELEMETRIA1);
@@ -434,7 +438,19 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             ">imu_data_ok:%u\r\n"
             ">roll:%.2f\r\n"
             ">pitch:%.2f\r\n"
-            ">yaw:%.2f\r\n",
+            ">yaw:%.2f\r\n"
+            ">gnss_rx_eventos:%lu\r\n"
+            ">gnss_rx_bytes:%u\r\n"
+            ">gps_rmc_ok:%u\r\n"
+            ">gps_gga_ok:%u\r\n"
+            ">gps_fix:%d\r\n"
+            ">gps_satelites:%d\r\n"
+            ">gps_hdop:%.2f\r\n"
+            ">gps_latitud:%.6f\r\n"
+            ">gps_longitud:%.6f\r\n"
+            ">gps_altitud_m:%.2f\r\n"
+            ">gps_velocidad_kph:%.2f\r\n"
+            ">gps_rumbo:%.2f\r\n",
             (unsigned int)adc1_codigo[2],
             humedad_pct,
             temperatura_c,
@@ -445,7 +461,19 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned int)imu_data_ok,
             imu_roll,
             imu_pitch,
-            imu_yaw);
+            imu_yaw,
+            (unsigned long)gnss_rx_eventos,
+            (unsigned int)GNSS_UARTRX.num_datos,
+            (unsigned int)gps_rmc_ok,
+            (unsigned int)gps_gga_ok,
+            (int)gps_modo,
+            (int)gps_satelites,
+            gps_hor_dilu,
+            latitud,
+            longitud,
+            gps_altura,
+            gps_vel_kph,
+            gps_rumbo);
 
         uartx_write_text(&huart6, texto);
     }
@@ -512,6 +540,35 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
 HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
        //procesa_rx();                 // Decodifica $PUSVU y distribuye las ordenes del control de tierra
         uartRX_DMA_Re_init(&GPS_UARTRX); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
+    }
+
+    /*
+     * GPS L76K / USART2:
+     * La libreria gps.c busca RMC y GGA dentro del buffer NMEA recibido.
+     * Los indicadores gps_rmc_ok / gps_gga_ok quedan enclavados cuando
+     * se obtiene por primera vez una sentencia valida con solucion.
+     */
+    if (GNSS_UARTRX.flag_rx == 1)
+    {
+        uint8_t rmc_ok;
+        uint8_t gga_ok;
+
+        gnss_rx_eventos++;
+
+        rmc_ok = GPS_RMC();
+        gga_ok = GPS_GGA();
+
+        if (rmc_ok != 0U)
+        {
+            gps_rmc_ok = 1U;
+        }
+
+        if (gga_ok != 0U)
+        {
+            gps_gga_ok = 1U;
+        }
+
+        uartRX_DMA_Re_init(&GNSS_UARTRX);
     }
 
     /*

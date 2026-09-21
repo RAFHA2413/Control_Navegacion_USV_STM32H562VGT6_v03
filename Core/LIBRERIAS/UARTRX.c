@@ -18,10 +18,12 @@ extern SERVOS SERVO1;
 
 //DEFINE LOS USART  A USAR
 extern UART_HandleTypeDef huart1;
+extern UART_HandleTypeDef huart2;
 extern UART_HandleTypeDef huart6;
 
 //inciar uart de recepcion por interrupcion  y tamaño del buffer
-UARTRXS GPS_UARTRX = {&huart1,USART1,600}; //en que puerto y tamaño sizeT es el tamaño del buffer de recepcion
+UARTRXS GPS_UARTRX = {&huart1,USART1,600}; // estacion de tierra / XBee
+UARTRXS GNSS_UARTRX = {&huart2,USART2,600}; // GPS L76K / NMEA
 UARTRXS UARTRX1 = {&huart6,USART6,600}; //en que puerto y tamaño sizeT es el tamaño del buffer de recepcion
 
 
