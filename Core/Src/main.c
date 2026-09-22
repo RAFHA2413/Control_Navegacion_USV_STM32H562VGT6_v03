@@ -418,20 +418,23 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
-     * PRUEBA SENSOR DE CORRIENTE LEM 7.2 - REFERENCIA EN NEUTRO:
+     * PRUEBA SENSOR DE CORRIENTE LEM 7.3 - BABOR A MAXIMA CARGA:
      *
-     * Los dos motores permanecen continuamente en NEUTRO (1500 us).
-     * No se ejecuta ninguna secuencia automatica de movimiento.
+     * Durante los primeros 3 s ambos motores permanecen en NEUTRO.
+     * Luego:
+     *   Babor    = MAX AVANTE (2000 us)
+     *   Estribor = NEUTRO     (1500 us)
      *
-     * Babor    = PB4 / TIM3_CH1 = 1500 us
-     * Estribor = PB1 / TIM3_CH4 = 1500 us
-     *
-     * Esto permite medir con multimetro la salida del LEM entre
-     * Pin 2 (OUT) y Pin 3 (GND) antes de aplicar carga a los motores.
+     * La orden queda fija para poder medir con multimetro la salida
+     * del LEM entre Pin 2 (OUT) y Pin 3 (GND).
      */
-    if (motores_pwm_activos != 0U)
+    if ((motores_pwm_activos != 0U) &&
+        (motores_test_estado == 0U) &&
+        ((HAL_GetTick() - motores_test_last_ms) >= 3000U))
     {
-        motor_babor_pwm_us = PWM_NEUTRO;
+        motores_test_last_ms = HAL_GetTick();
+
+        motor_babor_pwm_us = PWM_MAX_ADELANTE;
         motor_estribor_pwm_us = PWM_NEUTRO;
 
         USV_Motor_Set(
@@ -443,6 +446,8 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             &htim3,
             TIM_CHANNEL_4,
             motor_estribor_pwm_us);
+
+        motores_test_estado = 1U;
     }
 
     /*
