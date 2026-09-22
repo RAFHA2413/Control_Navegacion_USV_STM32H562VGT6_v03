@@ -38,6 +38,7 @@
 #include "adc_x.h"
 #include "temp_ds18b20.h"
 #include "usv_motores.h"
+#include "corriente_lem.h"
 
 #include "stdio.h"
 #include "stdlib.h"
@@ -105,6 +106,11 @@ uint16_t motor_estribor_pwm_us = PWM_NEUTRO;
 uint8_t motores_pwm_activos = 0U;
 uint32_t motores_test_last_ms = 0U;
 uint8_t motores_test_estado = 0U;
+
+uint16_t corriente_adc_raw = 0U;
+float corriente_voltaje_v = 0.0f;
+float corriente_lem_a = 0.0f;
+
 char teleplot_tx[240];
 uint8_t imu_raw[23];
 
@@ -467,6 +473,18 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
 
         teleplot_last_ms = HAL_GetTick();
 
+        /*
+         * SENSOR DE CORRIENTE LEM HASS 200-S:
+         * PA0 = ADC1_INP0 = adc1_codigo[0].
+         * Se conserva intacta la libreria corriente_lem.
+         */
+        corriente_adc_raw = adc1_codigo[0];
+        corriente_voltaje_v =
+            ((float)corriente_adc_raw / STM32_ADC_MAX_CODES) *
+            STM32_ADC_VREF;
+        corriente_lem_a =
+            LEM_HASS200_ObtenerCorriente(corriente_adc_raw);
+
         humedad_pct =
             ((4095.0f - (float)adc1_codigo[2]) * 100.0f) /
             (4095.0f - 1466.0f);
@@ -566,6 +584,22 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             gps_altura,
             gps_vel_kph,
             gps_rumbo);
+
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* Bloque 5: sensor de corriente LEM por PA0 / ADC1_INP0. */
+        len = snprintf(
+            texto,
+            sizeof(texto),
+            ">corriente_adc:%u\r\n"
+            ">corriente_voltaje_v:%.3f\r\n"
+            ">corriente_a:%.2f\r\n",
+            (unsigned int)corriente_adc_raw,
+            corriente_voltaje_v,
+            corriente_lem_a);
 
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
