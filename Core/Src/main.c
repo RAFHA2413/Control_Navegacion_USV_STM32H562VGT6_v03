@@ -111,6 +111,10 @@ uint16_t corriente_adc_raw = 0U;
 float corriente_voltaje_v = 0.0f;
 float corriente_lem_a = 0.0f;
 
+uint16_t bateria_adc_raw = 0U;
+float bateria_adc_v = 0.0f;
+float bateria_voltaje_v = 0.0f;
+
 char teleplot_tx[240];
 uint8_t imu_raw[23];
 
@@ -418,23 +422,13 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
-     * PRUEBA SENSOR DE CORRIENTE LEM 7.3 - BABOR A MAXIMA CARGA:
-     *
-     * Durante los primeros 3 s ambos motores permanecen en NEUTRO.
-     * Luego:
-     *   Babor    = MAX AVANTE (2000 us)
-     *   Estribor = NEUTRO     (1500 us)
-     *
-     * La orden queda fija para poder medir con multimetro la salida
-     * del LEM entre Pin 2 (OUT) y Pin 3 (GND).
+     * PRUEBA SENSOR DE BATERIA 8.1:
+     * Los motores permanecen en NEUTRO durante toda la prueba
+     * para validar primero la medicion de PC1 / ADC1_INP11.
      */
-    if ((motores_pwm_activos != 0U) &&
-        (motores_test_estado == 0U) &&
-        ((HAL_GetTick() - motores_test_last_ms) >= 3000U))
+    if (motores_pwm_activos != 0U)
     {
-        motores_test_last_ms = HAL_GetTick();
-
-        motor_babor_pwm_us = PWM_MAX_ADELANTE;
+        motor_babor_pwm_us = PWM_NEUTRO;
         motor_estribor_pwm_us = PWM_NEUTRO;
 
         USV_Motor_Set(
@@ -446,8 +440,6 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             &htim3,
             TIM_CHANNEL_4,
             motor_estribor_pwm_us);
-
-        motores_test_estado = 1U;
     }
 
     /*
@@ -485,6 +477,21 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             STM32_ADC_VREF;
         corriente_lem_a =
             LEM_HASS200_ObtenerCorriente(corriente_adc_raw);
+
+        /*
+         * SENSOR DE VOLTAJE DE BATERIA:
+         * PC1 = ADC1_INP11 = adc1_codigo[1].
+         * Divisor nominal: R1=20 kOhm, R2=4.7 kOhm.
+         * Factor nominal = (20k + 4.7k) / 4.7k = 5.255.
+         *
+         * Para esta primera prueba se usa el factor nominal y se compara
+         * contra el multimetro antes de aplicar cualquier calibracion.
+         */
+        bateria_adc_raw = adc1_codigo[1];
+        bateria_adc_v =
+            ((float)bateria_adc_raw / 4095.0f) * 3.3f;
+        bateria_voltaje_v =
+            bateria_adc_v * 5.255f;
 
         humedad_pct =
             ((4095.0f - (float)adc1_codigo[2]) * 100.0f) /
@@ -601,6 +608,22 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned int)corriente_adc_raw,
             corriente_voltaje_v,
             corriente_lem_a);
+
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* Bloque 6: voltaje de bateria por PC1 / ADC1_INP11. */
+        len = snprintf(
+            texto,
+            sizeof(texto),
+            ">bateria_adc:%u\r\n"
+            ">bateria_adc_v:%.3f\r\n"
+            ">bateria_voltaje_v:%.2f\r\n",
+            (unsigned int)bateria_adc_raw,
+            bateria_adc_v,
+            bateria_voltaje_v);
 
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
