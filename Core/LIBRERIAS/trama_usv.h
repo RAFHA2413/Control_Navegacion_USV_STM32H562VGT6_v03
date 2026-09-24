@@ -382,7 +382,7 @@ typedef struct
      *
      * Rango:
      *
-     * 0 a 140 = 0.0 a 14.0 voltios.
+     * 0 a 150 = 0.0 a 15.0 voltios.
      */
     uint16_t voltaje_x10;
 

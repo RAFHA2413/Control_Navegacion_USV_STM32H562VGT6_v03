@@ -493,6 +493,49 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         bateria_voltaje_v =
             bateria_adc_v * 5.255f;
 
+        /*
+         * INTEGRACION $PUSVD 9.1:
+         * Convierte las mediciones electricas al formato x10 de la trama.
+         * Se preservan temperatura e inundacion hasta integrarlas en su etapa.
+         */
+        {
+            float bateria_tx_v = bateria_voltaje_v;
+            float corriente_tx_a = corriente_lem_a;
+            uint16_t bateria_tx_x10;
+            uint16_t corriente_tx_x10;
+
+            if (bateria_tx_v < 0.0f)
+            {
+                bateria_tx_v = 0.0f;
+            }
+            else if (bateria_tx_v > 15.0f)
+            {
+                bateria_tx_v = 15.0f;
+            }
+
+            if (corriente_tx_a < 0.0f)
+            {
+                corriente_tx_a = 0.0f;
+            }
+            else if (corriente_tx_a > 100.0f)
+            {
+                corriente_tx_a = 100.0f;
+            }
+
+            bateria_tx_x10 =
+                (uint16_t)((bateria_tx_v * 10.0f) + 0.5f);
+
+            corriente_tx_x10 =
+                (uint16_t)((corriente_tx_a * 10.0f) + 0.5f);
+
+            TELEMETRIA_USV_SENSORES(
+                &TELEMETRIA1,
+                TELEMETRIA1.datos.temperatura_x10,
+                TELEMETRIA1.datos.inundacion,
+                bateria_tx_x10,
+                corriente_tx_x10);
+        }
+
         humedad_pct =
             ((4095.0f - (float)adc1_codigo[2]) * 100.0f) /
             (4095.0f - 1466.0f);

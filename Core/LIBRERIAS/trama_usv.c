@@ -978,7 +978,7 @@ size_t USV_ConstruirTelemetria(
         (telemetria->temperatura_x10 < -100) ||
         (telemetria->temperatura_x10 > 850) ||
         (telemetria->inundacion > 1U) ||
-        (telemetria->voltaje_x10 > 140U) ||
+        (telemetria->voltaje_x10 > 150U) ||
         (telemetria->corriente_x10 > 1000U) ||
         (telemetria->luces > 1U) ||
         (telemetria->modo_solicitado > 2U))
@@ -1277,7 +1277,7 @@ uint8_t USV_LeerTelemetria(
     if ((USV_LeerDecimalX10(
             campos[24], &decimal) == 0U) ||
         (decimal < 0) ||
-        (decimal > 140))
+        (decimal > 150))
     {
         return 0U;
     }
