@@ -20,39 +20,25 @@
  */
 
 /*
- * ACTUALIZACION DEL COMANDO $PUSVU:
+ * ACTUALIZACION VIGENTE DEL COMANDO $PUSVU:
  *
- * El comentario original anterior se conserva.
- * La escala x10 ahora se utiliza solamente en los campos
- * decimales de la telemetria $PUSVD.
+ * La escala x10 se conserva solamente en los campos decimales de
+ * la telemetria $PUSVD. El comando utiliza enteros sin escala x10.
  *
- * El comando utiliza directamente:
+ * La trama enviada desde tierra contiene cinco valores:
  *
- * potencia_global   = porcentaje entero de 0 a 100.
- * direccion         = demanda de giro entera de -100 a +100.
- * potencia_babor    = porcentaje entero de 0 a 100.
- * potencia_estribor = porcentaje entero de 0 a 100.
- * camara            = grados enteros de -90 a +90.
+ * $PUSVU,babor,estribor,camara,bomba,parada\r\n
  *
- * Ejemplos del comando vigente:
+ * - Babor y estribor: -100 a +100. Negativo significa atras.
+ * - Camara: -90 a +90 grados.
+ * - Bomba y parada: 0 o 1.
  *
- * 50 %       se almacena y transmite como 50.
- * -45 grados se almacenan y transmiten como -45.
+ * Las luces y la reconexion quedan reservadas internamente para una
+ * version futura. La falla de direccion se atiende dentro del control
+ * de tierra llevando ambos motores a cero, pero no se transmite.
+ * La trama de comandos no incluye secuencia ni CRC.
  *
- * No se agregan simbolos de porcentaje, etiquetas ni decimales
- * a los dieciseis valores numericos del comando.
- *
- * modo_joystick:
- *
- * 0 = manual con potenciometros independientes.
- * 1 = joystick con potenciometro general.
- *
- * main.c selecciona los controles y calcula las potencias finales.
- * Esta libreria construye, verifica y decodifica la trama;
- * no vuelve a calcular la mezcla de los motores.
- *
- * Los comentarios originales que mencionan la escala anterior
- * se mantienen como historial, pero no describen el comando vigente.
+ * La telemetria $PUSVD conserva su formato, escala x10 y CRC-8.
  */
 
 #include "trama_usv.h"
@@ -678,26 +664,38 @@ uint8_t USV_VerificarTrama(
  */
 
 
-/* Construye la trama de comandos $PUSVU.
- *
- * Las potencias se transmiten como porcentajes x10:
- *
- * 0    = 0.0 %
- * 1000 = 100.0 %
+/* Convierte una magnitud de potencia y sus dos ordenes fisicas en
+ * una sola potencia con signo para la trama compacta.
  */
-/*
- * ESCALA VIGENTE:
- *
- * El comentario original anterior corresponde a la version antigua.
- * Ahora 0 significa 0 % y 100 significa 100 %.
- * No existe escala x10 dentro de USV_Comando.
- */
+static int16_t USV_PotenciaConSigno(
+        uint16_t potencia,
+        uint8_t avante,
+        uint8_t atras)
+{
+    if ((avante != 0U) && (atras == 0U))
+    {
+        return (int16_t)potencia;
+    }
+
+    if ((avante == 0U) && (atras != 0U))
+    {
+        return -(int16_t)potencia;
+    }
+
+    /* Sin direccion o con una combinacion contradictoria: motor detenido. */
+    return 0;
+}
+
+
+/* Construye la trama compacta de comandos $PUSVU sin CRC. */
 size_t USV_ConstruirComando(
         char *destino,
         size_t capacidad,
         const USV_Comando *comando)
 {
     int resultado;
+    int16_t motor_babor;
+    int16_t motor_estribor;
 
     if ((destino == NULL) ||
         (comando == NULL) ||
@@ -709,7 +707,7 @@ size_t USV_ConstruirComando(
     /* Una entrada invalida no debe dejar una orden anterior en este destino. */
     destino[0] = '\0';
 
-    /* Verifica los límites analógicos. */
+    /* Verifica las unidades internas vigentes, sin escala x10. */
     if ((comando->potencia_global > 100U) ||
         (comando->direccion < -100) ||
         (comando->direccion > 100) ||
@@ -736,88 +734,45 @@ size_t USV_ConstruirComando(
         return 0U;
     }
 
-    /* Construye el contenido de la trama.
-     *
-     * Las etiquetas permiten reconocer fácilmente los campos
-     * durante las pruebas y la sustentación.
-     */
     /*
-     * El comentario anterior describe la version con etiquetas.
-     * Esta version transmite solamente valores en el siguiente orden:
-     * secuencia, potencia global, direccion, potencia babor, potencia estribor,
-     * camara, babor avante, babor atras, estribor avante, estribor atras,
-     * luces, bomba, reconexion, modo manual, parada, falla de direccion.
-     * El bote debe decodificar exactamente este mismo orden.
+     * La parada y la falla tienen prioridad. El main.c ya lleva las
+     * potencias a cero, pero esta segunda barrera evita que una estructura
+     * inconsistente transmita movimiento durante una condicion insegura.
      */
+    if ((comando->parada != 0U) ||
+        (comando->falla_direccion != 0U))
+    {
+        motor_babor = 0;
+        motor_estribor = 0;
+    }
+    else
+    {
+        motor_babor = USV_PotenciaConSigno(
+            comando->potencia_babor,
+            comando->babor_avante,
+            comando->babor_atras);
+
+        motor_estribor = USV_PotenciaConSigno(
+            comando->potencia_estribor,
+            comando->estribor_avante,
+            comando->estribor_atras);
+    }
 
     /*
-     * ACTUALIZACION DEL CAMPO DE MODO:
-     *
-     * El valor numero 14 mantiene su posicion.
-     * Su nombre vigente es modo_joystick:
-     *
-     * 0 = manual independiente.
-     * 1 = joystick.
-     *
-     * Los valores de babor y estribor ya contienen las potencias
-     * finales calculadas por main.c para el modo seleccionado.
-     */
-
-    /*
-     * La camara se almacena internamente en decimas de grado para
-     * conservar la compatibilidad con main.c y la pantalla Nextion.
-     * En la trama se envia en grados enteros, entre -90 y +90,
-     * sin punto decimal ni etiquetas.
-     * Redondea al grado mas cercano; los medios grados se redondean
-     * alejandose de cero: -875 -> -88, -871 -> -87, 875 -> 88.
-     * Los otros valores de la trama conservan su formato anterior.
-     */
-
-    /*
-     * ACTUALIZACION DE LA CAMARA:
-     *
-     * El comentario anterior se conserva como historial.
-     * Ahora comando->camara ya contiene grados enteros -90...+90.
-     * Se transmite directamente, sin redondeos ni conversiones x10.
-     *
-     * Todos los valores numericos del comando son enteros.
+     * Las luces y la reconexion siguen disponibles internamente, pero se
+     * dejan fuera de la trama para una version futura. La falla de direccion
+     * tambien es interna: ya llevo ambos motores a cero en el bloque anterior.
+     * Cualquier incorporacion futura debe actualizar tambien el receptor.
      */
     resultado = snprintf(
         destino,
         capacidad,
-        "$PUSVU,"
-        "%lu,"
-        "%u,"
-        "%d,"
-        "%u,"
-        "%u,"
-        "%d,"
-        "%u,"
-        "%u,"
-        "%u,"
-        "%u,"
-        "%u,"
-        "%u,"
-        "%u,"
-        "%u,"
-        "%u,"
-        "%u",
-        (unsigned long)comando->secuencia,
-        (unsigned int)comando->potencia_global,
-        (int)comando->direccion,
-        (unsigned int)comando->potencia_babor,
-        (unsigned int)comando->potencia_estribor,
+        "$PUSVU,%d,%d,%d,%u,%u\r\n",
+        (int)motor_babor,
+        (int)motor_estribor,
         (int)comando->camara,
-        (unsigned int)comando->babor_avante,
-        (unsigned int)comando->babor_atras,
-        (unsigned int)comando->estribor_avante,
-        (unsigned int)comando->estribor_atras,
-        (unsigned int)comando->luces,
         (unsigned int)comando->bomba,
-        (unsigned int)comando->reconexion,
-        (unsigned int)comando->modo_joystick,
-        (unsigned int)comando->parada,
-        (unsigned int)comando->falla_direccion);
+        (unsigned int)comando->parada);
 
     if ((resultado < 0) ||
         ((size_t)resultado >= capacidad))
@@ -826,7 +781,7 @@ size_t USV_ConstruirComando(
         return 0U;
     }
 
-    return USV_CerrarTrama(destino, capacidad);
+    return (size_t)resultado;
 }
 
 
@@ -837,42 +792,40 @@ uint8_t USV_LeerComando(
 {
     char cuerpo[USV_TRAMA_MAXIMA];
     char *campos[USV_MAXIMO_CAMPOS];
-    uint32_t valores[16] = {0U};
-
-    uint32_t secuencia;
-    uint32_t potencia_global;
-    int32_t direccion;
-    uint32_t potencia_babor;
-    uint32_t potencia_estribor;
+    size_t longitud;
+    size_t longitud_cuerpo;
+    int32_t motor_babor;
+    int32_t motor_estribor;
     int32_t camara;
-
-    unsigned int babor_avante;
-    unsigned int babor_atras;
-    unsigned int estribor_avante;
-    unsigned int estribor_atras;
-
-    unsigned int luces;
-    unsigned int bomba;
-    unsigned int reconexion;
-    unsigned int modo_joystick;
-    unsigned int parada;
-    unsigned int falla_direccion;
-
+    uint32_t bomba;
+    uint32_t parada;
     size_t campos_leidos;
-    size_t indice;
 
     if ((trama == NULL) || (comando == NULL))
     {
         return 0U;
     }
 
-    if (USV_CopiarCuerpo(
-            trama,
-            cuerpo,
-            sizeof(cuerpo)) == 0U)
+    /* El comando vigente debe terminar en CR/LF y no contiene CRC. */
+    longitud = strlen(trama);
+
+    if ((longitud < 2U) ||
+        (trama[longitud - 2U] != '\r') ||
+        (trama[longitud - 1U] != '\n') ||
+        (strchr(trama, '*') != NULL))
     {
         return 0U;
     }
+
+    longitud_cuerpo = longitud - 2U;
+
+    if ((longitud_cuerpo + 1U) > sizeof(cuerpo))
+    {
+        return 0U;
+    }
+
+    memcpy(cuerpo, trama, longitud_cuerpo);
+    cuerpo[longitud_cuerpo] = '\0';
 
     /* Separa las posiciones sin buscar etiquetas y sin utilizar sscanf(). */
     campos_leidos = USV_SepararCampos(
@@ -880,169 +833,74 @@ uint8_t USV_LeerComando(
         campos,
         USV_MAXIMO_CAMPOS);
 
-    /* Debe contener el identificador y exactamente dieciseis valores. */
-    if ((campos_leidos != 17U) ||
+    /* Debe contener el identificador y exactamente cinco valores. */
+    if ((campos_leidos != 6U) ||
         (strcmp(campos[0], "$PUSVU") != 0))
     {
         return 0U;
     }
 
-    /* Los valores 2 y 5 del arreglo son direccion y camara, con signo. */
-    for (indice = 0U; indice < 16U; indice++)
-    {
-        if ((indice == 2U) || (indice == 5U))
-        {
-            continue;
-        }
-
-        if (USV_LeerEnteroSinSigno(
-                campos[indice + 1U], &valores[indice]) == 0U)
-        {
-            return 0U;
-        }
-    }
-
-    if ((USV_LeerEnteroConSigno(campos[3], &direccion) == 0U) ||
-        (USV_LeerEnteroConSigno(campos[6], &camara) == 0U))
+    if ((USV_LeerEnteroConSigno(campos[1], &motor_babor) == 0U) ||
+        (USV_LeerEnteroConSigno(campos[2], &motor_estribor) == 0U) ||
+        (USV_LeerEnteroConSigno(campos[3], &camara) == 0U) ||
+        (USV_LeerEnteroSinSigno(campos[4], &bomba) == 0U) ||
+        (USV_LeerEnteroSinSigno(campos[5], &parada) == 0U))
     {
         return 0U;
     }
 
-    /* Asigna cada posicion a su significado antes de comprobar los rangos. */
-    secuencia = valores[0];
-    potencia_global = valores[1];
-    potencia_babor = valores[3];
-    potencia_estribor = valores[4];
-    babor_avante = valores[6];
-    babor_atras = valores[7];
-    estribor_avante = valores[8];
-    estribor_atras = valores[9];
-    luces = valores[10];
-    bomba = valores[11];
-    reconexion = valores[12];
-    modo_joystick = valores[13];
-    parada = valores[14];
-    falla_direccion = valores[15];
-
-    /* Verifica los límites analógicos. */
-    if ((potencia_global > 100U) ||
-        (direccion < -100) ||
-        (direccion > 100) ||
-        (potencia_babor > 100U) ||
-        (potencia_estribor > 100U) ||
+    if ((motor_babor < -100) ||
+        (motor_babor > 100) ||
+        (motor_estribor < -100) ||
+        (motor_estribor > 100) ||
         (camara < -90) ||
-        (camara > 90))
-    {
-        return 0U;
-    }
-
-    /* Verifica los valores digitales. */
-    if ((babor_avante > 1U) ||
-        (babor_atras > 1U) ||
-        (estribor_avante > 1U) ||
-        (estribor_atras > 1U) ||
-        (luces > 1U) ||
+        (camara > 90) ||
         (bomba > 1U) ||
-        (reconexion > 1U) ||
-        (modo_joystick > 1U) ||
-        (parada > 1U) ||
-        (falla_direccion > 1U))
+        (parada > 1U))
     {
         return 0U;
     }
 
-    /*
-     * Hasta aqui se han comprobado todos los campos.
-     * Una trama rechazada no modifica el comando entregado.
-     *
-     * Las potencias, la direccion y la camara se guardan
-     * directamente en sus unidades vigentes, sin escala x10.
-     */
-
-    /* Guarda los valores decodificados. */
-    comando->secuencia =
-        (uint32_t)secuencia;
-
-    comando->potencia_global =
-        (uint16_t)potencia_global;
-
-    comando->direccion =
-        (int16_t)direccion;
+    /* Parte de una estructura limpia: los campos omitidos quedan en cero. */
+    memset(comando, 0, sizeof(*comando));
 
     comando->potencia_babor =
-        (uint16_t)potencia_babor;
-
+        (uint16_t)((motor_babor < 0) ? -motor_babor : motor_babor);
     comando->potencia_estribor =
-        (uint16_t)potencia_estribor;
+        (uint16_t)((motor_estribor < 0) ? -motor_estribor : motor_estribor);
+    comando->camara = (int16_t)camara;
+    comando->bomba = (uint8_t)bomba;
+    comando->parada = (uint8_t)parada;
 
-    comando->camara =
-        (int16_t)camara;
-
-    /*
-     * El sexto valor recibido ahora contiene grados enteros:
-     * -90, -45, 0, 45, 90; no contiene decimales ni valores x10.
-     * Se multiplica por 10 solamente al guardarlo en camara_x10,
-     * porque la estructura mantiene su escala interna anterior.
-     * El microcontrolador a bordo debe usar esta misma decodificacion.
-     */
-
-    /*
-     * ACTUALIZACION:
-     *
-     * El comentario anterior describe la estructura antigua.
-     * Ahora comando->camara guarda directamente los grados recibidos.
-     * Ya no existe camara_x10 ni se multiplica este valor por 10.
-     */
-
-    comando->babor_avante =
-        (uint8_t)babor_avante;
-
-    comando->babor_atras =
-        (uint8_t)babor_atras;
-
-    comando->estribor_avante =
-        (uint8_t)estribor_avante;
-
-    comando->estribor_atras =
-        (uint8_t)estribor_atras;
-
-    comando->luces =
-        (uint8_t)luces;
-
-    comando->bomba =
-        (uint8_t)bomba;
-
-    comando->reconexion =
-        (uint8_t)reconexion;
-
-    comando->modo_joystick =
-        (uint8_t)modo_joystick;
-
-    comando->parada =
-        (uint8_t)parada;
-
-    /* Activa la falla si existen órdenes contradictorias,
-     * incluso si FAULT llegó en cero.
-     */
-    if (((babor_avante != 0U) &&
-         (babor_atras != 0U)) ||
-        ((estribor_avante != 0U) &&
-         (estribor_atras != 0U)))
+    if (motor_babor > 0)
     {
-        comando->falla_direccion = 1U;
+        comando->babor_avante = 1U;
     }
-    else
+    else if (motor_babor < 0)
     {
-        comando->falla_direccion =
-            (uint8_t)falla_direccion;
+        comando->babor_atras = 1U;
     }
 
-    /*
-     * Decodificar no acciona fisicamente los motores.
-     *
-     * Antes de aplicar las salidas, el receptor debe atender
-     * parada, falla_direccion y la perdida de comunicacion.
-     */
+    if (motor_estribor > 0)
+    {
+        comando->estribor_avante = 1U;
+    }
+    else if (motor_estribor < 0)
+    {
+        comando->estribor_atras = 1U;
+    }
+
+    /* El receptor futuro debe aplicar siempre la parada como prioridad. */
+    if (comando->parada != 0U)
+    {
+        comando->potencia_babor = 0U;
+        comando->potencia_estribor = 0U;
+        comando->babor_avante = 0U;
+        comando->babor_atras = 0U;
+        comando->estribor_avante = 0U;
+        comando->estribor_atras = 0U;
+    }
+
     return 1U;
 }
 

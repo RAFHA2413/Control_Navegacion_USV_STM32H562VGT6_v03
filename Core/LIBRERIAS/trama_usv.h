@@ -16,11 +16,8 @@
  *
  * $PUSVD
  *
- * Ambas tramas terminan con:
- *
- * *HH\r\n
- *
- * HH corresponde al CRC-8 escrito en hexadecimal.
+ * La trama de comandos $PUSVU se transmite sin CRC y termina con \r\n.
+ * La telemetria $PUSVD conserva por ahora su formato anterior con CRC-8.
  */
 
 #ifndef TRAMA_USV_H_
@@ -35,17 +32,6 @@
 /* Define los tipos uint8_t, uint16_t, int16_t y uint32_t. */
 #include <stdint.h>
 
-/*
- * Asignacion vigente despues del intercambio de pines:
- *
- * UART5  (&huart5): trama hacia el bote, PB13 TX y PB12 RX.
- * USART1 (&huart1): pantalla Nextion, PA9 TX y PA10 RX.
- *
- * Las referencias a USART1 como transmisor de la trama en los
- * comentarios originales corresponden a la asignacion anterior.
- * Esta libreria construye y decodifica texto; no selecciona la UART.
- */
-
 
 /*
  * Tamaño máximo reservado para una trama completa.
@@ -55,7 +41,7 @@
  * - Identificador de la trama.
  * - Todos los campos.
  * - Separadores.
- * - CRC.
+ * - Terminacion y, cuando corresponda, CRC.
  * - Retorno de carro y salto de línea.
  * - Carácter nulo final.
  */
@@ -95,146 +81,32 @@
 
 
 /*
- * ORDEN DE LOS VALORES EN LA TRAMA DE COMANDOS $PUSVU
+ * FORMATO VIGENTE DE LA TRAMA DE COMANDOS $PUSVU
  *
- * Despues del identificador se envian exactamente 16 valores.
- * Los nombres indicados aqui sirven como documentacion:
- * no se transmiten etiquetas, nombres de variables ni signos '='.
+ * Despues del identificador se transmiten cinco valores:
  *
- * Posicion  1: secuencia.
- * Posicion  2: potencia_global_x10.
- * Posicion  3: direccion_x10.
- * Posicion  4: potencia_babor_x10.
- * Posicion  5: potencia_estribor_x10.
- * Posicion  6: camara_x10.
- * Posicion  7: babor_avante.
- * Posicion  8: babor_atras.
- * Posicion  9: estribor_avante.
- * Posicion 10: estribor_atras.
- * Posicion 11: luces.
- * Posicion 12: bomba.
- * Posicion 13: reconexion.
- * Posicion 14: modo_manual.
- * Posicion 15: parada.
- * Posicion 16: falla_direccion.
+ * Posicion 1: motor_babor,    de -100 a +100.
+ * Posicion 2: motor_estribor, de -100 a +100.
+ * Posicion 3: camara,         de  -90 a  +90 grados.
+ * Posicion 4: bomba,          0 o 1.
+ * Posicion 5: parada,         0 o 1.
  *
- * Los valores analogicos se transmiten como enteros multiplicados
- * por 10, conservando una cifra decimal sin enviar un punto:
+ * En los motores, un valor positivo significa avante, uno negativo
+ * significa atras y cero significa motor detenido. El signo positivo
+ * no se escribe para ahorrar un caracter.
  *
- * 500  representa 50.0 % de potencia.
- * -450 representa -45.0 grados de camara.
+ * Ejemplo:
  *
- * La secuencia no se multiplica por 10.
- * Las entradas digitales se transmiten como 0 o 1.
+ * $PUSVU,60,-30,15,1,0\r\n
  *
- * Ejemplo completo, con su CRC-8:
+ * Esta trama no incluye secuencia, potencia general, direccion del
+ * joystick, modo de control, ordenes separadas de avante/atras, luces,
+ * reconexion, falla ni CRC. La reconexion queda reservada en el codigo
+ * para una version futura. La falla sigue actuando internamente sobre la
+ * seguridad, pero no ocupa espacio en el enlace hacia el bote.
  *
- * $PUSVU,1,500,0,500,500,-450,1,0,1,0,1,0,0,1,0,0*5A\r\n
- *
- * Al enviar, \r\n representa los bytes 0x0D y 0x0A;
- * no se envian las barras ni las letras de esa representacion.
- * El caracter nulo '\0' termina la cadena en memoria y no se envia.
- *
- * El bote debe utilizar el mismo orden y la misma escala.
- * El formato anterior con etiquetas no es compatible con este.
- * Se conserva el formato actual de telemetria $PUSVD.
- */
-
-/*
- * ACTUALIZACION: CAMARA EN GRADOS ENTEROS SIN PUNTO DECIMAL
- *
- * El bloque anterior se conserva como documentacion original;
- * su escala y su ejemplo de camara corresponden a la version anterior.
- *
- * Ahora la posicion 6 de la trama contiene grados enteros de -90 a +90:
- *
- * -90 = -90 grados.
- * -45 = -45 grados.
- *   0 = posicion central.
- *  45 = +45 grados.
- *  90 = +90 grados.
- *
- * No se envia un punto decimal ni el nombre de la variable.
- * Los positivos se transmiten sin el signo '+'.
- *
- * Ejemplo actualizado, con su CRC-8:
- *
- * $PUSVU,1,500,0,500,500,-45,1,0,1,0,1,0,0,1,0,0*06\r\n
- *
- * Solamente cambia la escala transmitida de la camara.
- * Las potencias y la direccion conservan sus valores x10.
- * El orden, la secuencia, los digitales, el CRC-8 y la terminacion
- * permanecen iguales. La telemetria $PUSVD tampoco cambia.
- *
- * El receptor del bote debe utilizar esta nueva escala de camara.
- * No debe interpretar los grados recibidos como decimas de grado.
- */
-
-/*
- * ACTUALIZACION VIGENTE: COMANDO SIN ESCALA X10
- *
- * Los dos bloques anteriores se conservan como historial.
- * Sus nombres, escalas y ejemplos corresponden a versiones anteriores.
- *
- * Ahora el comando utiliza las mismas unidades en memoria y por serial.
- * No se multiplica ni se divide por 10 ningun campo de USV_Comando.
- *
- * Orden vigente despues del identificador $PUSVU:
- *
- * Posicion  1: secuencia.
- * Posicion  2: potencia_global, porcentaje entero de 0 a 100.
- * Posicion  3: direccion, demanda de giro entera de -100 a +100.
- * Posicion  4: potencia_babor, porcentaje entero de 0 a 100.
- * Posicion  5: potencia_estribor, porcentaje entero de 0 a 100.
- * Posicion  6: camara, grados enteros de -90 a +90.
- * Posicion  7: babor_avante.
- * Posicion  8: babor_atras.
- * Posicion  9: estribor_avante.
- * Posicion 10: estribor_atras.
- * Posicion 11: luces.
- * Posicion 12: bomba.
- * Posicion 13: reconexion.
- * Posicion 14: modo_joystick.
- * Posicion 15: parada.
- * Posicion 16: falla_direccion.
- *
- * Las posiciones 7 a 16 admiten solamente 0 o 1.
- *
- * Ejemplo vigente, con su CRC-8:
- *
- * $PUSVU,1,50,0,50,50,-45,1,0,1,0,1,0,0,1,0,0*18\r\n
- *
- * 50 significa directamente 50 %.
- * -45 significa directamente -45 grados de camara.
- * No se transmiten simbolos de porcentaje ni puntos decimales.
- *
- * modo_joystick = 0:
- *
- * - Control manual mediante los potenciometros independientes.
- * - potencia_global y direccion se envian en cero.
- * - Cada potenciometro determina la potencia de su propio motor.
- *
- * modo_joystick = 1:
- *
- * - Control mediante potenciometro general y joystick de direccion.
- * - Los potenciometros independientes no gobiernan la propulsion.
- * - El general establece el limite maximo para cada motor.
- * - Giro positivo: derecha; babor conserva potencia y estribor disminuye.
- * - Giro negativo: izquierda; estribor conserva potencia y babor disminuye.
- *
- * main.c selecciona los controles y calcula las potencias finales.
- * Esta libreria no realiza esa seleccion ni calcula la mezcla.
- * El receptor aplica potencia_babor y potencia_estribor sin repetirla.
- *
- * La camara permanece disponible en ambos modos.
- * La parada de emergencia tiene prioridad sobre la propulsion.
- *
- * Se mantienen los dieciseis valores, el algoritmo CRC-8 y CR/LF.
- * La telemetria $PUSVD mantiene sus campos y escalas actuales.
- *
- * El transmisor y el receptor deben utilizar esta misma version.
- * Un receptor antiguo puede interpretar mal las unidades aunque
- * el CRC de la trama recibida sea correcto.
+ * Al enviar, \r\n representa los bytes 0x0D y 0x0A. El caracter nulo
+ * final solamente termina la cadena en memoria y no se transmite.
  */
 
 
@@ -242,146 +114,16 @@
  * Estructura que contiene todas las órdenes enviadas
  * desde el control de tierra hacia el bote.
  *
- * Esta información será enviada por USART1 mediante los XBee.
- */
-/*
- * Asignacion vigente: esta estructura se transmite por UART5.
- * Los comentarios originales de escala se conservan debajo.
- * Los comentarios de actualizacion indican las unidades vigentes.
+ * Esta informacion se envia actualmente por UART5 mediante el radio.
  */
 typedef struct
 {
-    /*
-     * Número consecutivo de la trama.
-     *
-     * Permite identificar:
-     *
-     * - Tramas perdidas.
-     * - Tramas repetidas.
-     * - Reinicios del transmisor.
-     */
-    uint32_t secuencia;
-
-    /*
-     * Potencia general solicitada.
-     *
-     * Se almacena multiplicada por 10.
-     *
-     * Rango:
-     *
-     * 0     = 0.0 %
-     * 1000  = 100.0 %
-     */
-    /*
-     * Vigente: porcentaje entero de 0 a 100, sin escala x10.
-     * Se utiliza como limite por motor solamente en modo joystick.
-     * En modo manual independiente se envia en cero.
-     */
-    uint16_t potencia_global;
-
-    /*
-     * Dirección solicitada mediante el joystick del bote.
-     *
-     * Se almacena multiplicada por 10.
-     *
-     * Rango:
-     *
-     * -1000 = giro máximo hacia un lado.
-     *     0 = posición central.
-     * +1000 = giro máximo hacia el otro lado.
-     *
-     * El bote utilizará esta orden para variar las revoluciones
-     * entre el motor de babor y el motor de estribor.
-     */
-    /*
-     * Vigente: demanda de giro entera de -100 a +100.
-     *
-     * -100 = giro maximo a la izquierda.
-     *    0 = posicion central.
-     * +100 = giro maximo a la derecha.
-     *
-     * No es un angulo de timon ni un angulo de camara.
-     * En modo manual independiente se envia en cero.
-     *
-     * La mezcla ya se calcula en tierra; el receptor no debe
-     * mezclar nuevamente las potencias utilizando este campo.
-     */
-    int16_t direccion;
-
-    /*
-     * Potencia solicitada para el motor de babor.
-     *
-     * Se almacena multiplicada por 10.
-     *
-     * Rango:
-     *
-     * 0     = 0.0 %
-     * 1000  = 100.0 %
-     */
-    /*
-     * Vigente: potencia final en porcentaje entero de 0 a 100.
-     *
-     * Manual: procede del potenciometro independiente de babor.
-     * Joystick: procede del calculo con general y direccion.
-     *
-     * En joystick no debe superar potencia_global.
-     * Es una orden de potencia, no una medicion de RPM.
-     */
-    uint16_t potencia_babor;
-
-    /*
-     * Potencia solicitada para el motor de estribor.
-     *
-     * Se almacena multiplicada por 10.
-     *
-     * Rango:
-     *
-     * 0     = 0.0 %
-     * 1000  = 100.0 %
-     */
-    /*
-     * Vigente: potencia final en porcentaje entero de 0 a 100.
-     *
-     * Manual: procede del potenciometro independiente de estribor.
-     * Joystick: procede del calculo con general y direccion.
-     *
-     * En joystick no debe superar potencia_global.
-     * Es una orden de potencia, no una medicion de RPM.
-     */
-    uint16_t potencia_estribor;
-
-    /*
-     * Ángulo solicitado para la cámara.
-     *
-     * Se almacena multiplicado por 10.
-     *
-     * Rango:
-     *
-     * -900 = -90.0 grados.
-     *    0 = posición central.
-     * +900 = +90.0 grados.
-     */
-    /*
-     * El nombre y el rango anteriores se conservan para la memoria:
-     * camara_x10 sigue almacenando decimas de grado, de -900 a +900.
-     *
-     * USV_ConstruirComando() convierte este valor a grados enteros
-     * al transmitirlo. Por ejemplo, -871 se transmite como -87.
-     *
-     * USV_LeerComando() recibe grados enteros y los multiplica por 10
-     * al guardarlos aqui. Por ejemplo, -45 se almacena como -450.
-     *
-     * Esto mantiene la compatibilidad con main.c y Nextion;
-     * no significa que la trama siga enviando valores de -900 a +900.
-     */
-    /*
-     * Vigente: grados enteros de -90 a +90 en memoria y por serial.
-     * No existe camara_x10 ni se realizan conversiones por diez.
-     *
-     * Ejemplo: -45 se guarda como -45 y se transmite como -45.
-     * La camara funciona en ambos modos de propulsion.
-     */
-    int16_t camara;
+    /* Datos internos usados para calcular las potencias finales. */
+    uint16_t potencia_global;     /* 0 a 100 %, no se transmite. */
+    int16_t direccion;            /* -100 a 100, no se transmite. */
+    uint16_t potencia_babor;      /* Magnitud final de 0 a 100 %. */
+    uint16_t potencia_estribor;   /* Magnitud final de 0 a 100 %. */
+    int16_t camara;               /* Angulo entero de -90 a +90 grados. */
 
     /*
      * Orden digital para mover el motor de babor hacia avante.
@@ -415,12 +157,7 @@ typedef struct
      */
     uint8_t estribor_atras;
 
-    /*
-     * Estado solicitado para las luces de navegación.
-     *
-     * 0 = luces apagadas.
-     * 1 = luces encendidas.
-     */
+    /* Se lee fisicamente, pero queda reservado para una version futura. */
     uint8_t luces;
 
     /*
@@ -432,28 +169,12 @@ typedef struct
     uint8_t bomba;
 
     /*
-     * Solicitud de reconexión del enlace con el bote.
-     *
-     * 0 = operación normal.
-     * 1 = solicitar reconexión.
+     * Reservado para una version futura; actualmente no se transmite.
+     * 0 = operacion normal; 1 = solicitud detectada internamente.
      */
     uint8_t reconexion;
 
-    /*
-     * Selección del modo de control.
-     *
-     * 0 = modo diferente al manual por joystick.
-     * 1 = modo manual mediante joystick.
-     */
-    /*
-     * Nombre y significado vigentes:
-     *
-     * modo_joystick = 0: manual con potenciometros independientes.
-     * modo_joystick = 1: joystick con potenciometro general.
-     *
-     * Sustituye al miembro anterior llamado modo_manual.
-     * Conserva la posicion numero 14 dentro de la trama.
-     */
+    /* 0 = potenciometros independientes; 1 = joystick y general. */
     uint8_t modo_joystick;
 
     /*
@@ -478,6 +199,8 @@ typedef struct
      *
      * 0 = combinación válida.
      * 1 = falla de dirección detectada.
+     *
+     * Este estado detiene internamente la propulsion, pero no se transmite.
      */
     uint8_t falla_direccion;
 
@@ -489,10 +212,6 @@ typedef struct
  * desde el bote hacia el control de tierra.
  *
  * Su organización sigue la Trama Versión 3.
- */
-/*
- * La telemetria no cambia con esta actualizacion del comando.
- * Sus miembros decimales conservan intencionalmente la escala x10.
  */
 typedef struct
 {
@@ -760,25 +479,6 @@ uint8_t USV_VerificarTrama(
  * - El buffer es demasiado pequeño.
  * - Alguno de los valores está fuera de rango.
  */
-/*
- * En esta version, la camara del comando se redondea al grado entero
- * mas cercano antes de construir la trama, sin utilizar float.
- * Los medios grados se redondean alejandose de cero:
- * -875 -> -88; -871 -> -87; 875 -> 88.
- * El campo transmitido queda siempre entre -90 y +90, sin decimales.
- */
-/*
- * Vigente:
- *
- * Todos los miembros del comando ya contienen enteros
- * en las unidades que se transmiten.
- * No realiza conversiones x10 ni redondeos de la camara.
- *
- * Construye el identificador, los dieciseis valores,
- * el CRC-8 y los bytes finales CR/LF.
- *
- * La longitud retornada no incluye el caracter nulo '\0'.
- */
 size_t USV_ConstruirComando(
     char *destino,
     size_t tamano_destino,
@@ -799,34 +499,7 @@ size_t USV_ConstruirComando(
  * Retorna:
  *
  * 1 = trama recibida y decodificada correctamente.
- * 0 = trama inválida, CRC incorrecto o valores fuera de rango.
- */
-/*
- * El campo de camara recibido debe ser un entero entre -90 y +90.
- * No admite puntos decimales ni valores fuera de este rango.
- * Despues de validarlo, guarda grados * 10 en comando->camara_x10.
- * El receptor debe utilizar este mismo formato actualizado.
- */
-/*
- * Vigente:
- *
- * Guarda los valores directamente, sin multiplicarlos por diez.
- *
- * - Potencias: 0 a 100.
- * - Direccion: -100 a +100.
- * - Camara: -90 a +90.
- * - Estados digitales: 0 o 1.
- *
- * Rechaza etiquetas, simbolos de porcentaje y puntos decimales
- * dentro de los campos numericos del comando.
- *
- * Si la trama es rechazada, no modifica la estructura destino.
- * Si existen ordenes simultaneas de avante y atras para un motor,
- * activa falla_direccion aunque el campo recibido fuera cero.
- *
- * Decodificar no acciona los motores ni el servomotor.
- * El receptor debe aplicar la seguridad antes de activar salidas
- * y llevar la propulsion a una condicion segura si pierde el enlace.
+ * 0 = formato invalido o valores fuera de rango.
  */
 uint8_t USV_LeerComando(
     const char *trama,
