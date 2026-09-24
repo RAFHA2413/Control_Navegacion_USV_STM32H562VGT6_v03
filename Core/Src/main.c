@@ -342,11 +342,16 @@ if ((HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1) == HAL_OK) &&
     motores_pwm_activos = 1U;
 }
 
-/* La prueba de bomba inicia siempre con el rele desenergizado. */
+/*
+ * La prueba de bomba inicia con el rele desenergizado.
+ * PB5 es open-drain y el rele es activo en LOW:
+ * SET = alta impedancia = OFF.
+ * RESET = 0 V = ON.
+ */
 HAL_GPIO_WritePin(
     ACHIQUE_CTRL_GPIO_Port,
     ACHIQUE_CTRL_Pin,
-    GPIO_PIN_RESET);
+    GPIO_PIN_SET);
 bomba_test_estado = 0U;
 bomba_test_last_ms = HAL_GetTick();
 
@@ -460,10 +465,11 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
 
     /*
      * PRUEBA LOCAL BOMBA DE ACHIQUE 10.1:
-     * PB5 / ACHIQUE_CTRL controla el rele de la bomba.
+     * PB5 / ACHIQUE_CTRL controla el rele activo en LOW.
+     * PB5 esta configurado open-drain.
      *
      * Secuencia:
-     *   5 s apagada -> 5 s encendida -> repetir.
+     *   5 s apagada (SET/Hi-Z) -> 5 s encendida (RESET/0 V) -> repetir.
      *
      * Los motores de propulsion permanecen en NEUTRO durante la prueba.
      * Se mantienen activos los sensores y Teleplot para observar
@@ -475,18 +481,20 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
 
         if (bomba_test_estado == 0U)
         {
-            HAL_GPIO_WritePin(
-                ACHIQUE_CTRL_GPIO_Port,
-                ACHIQUE_CTRL_Pin,
-                GPIO_PIN_SET);
-            bomba_test_estado = 1U;
-        }
-        else
-        {
+            /* Activo en LOW: RESET fuerza PB5 a 0 V y energiza el rele. */
             HAL_GPIO_WritePin(
                 ACHIQUE_CTRL_GPIO_Port,
                 ACHIQUE_CTRL_Pin,
                 GPIO_PIN_RESET);
+            bomba_test_estado = 1U;
+        }
+        else
+        {
+            /* SET libera PB5 (Hi-Z) y el pull-up del rele lo desactiva. */
+            HAL_GPIO_WritePin(
+                ACHIQUE_CTRL_GPIO_Port,
+                ACHIQUE_CTRL_Pin,
+                GPIO_PIN_SET);
             bomba_test_estado = 0U;
         }
     }
@@ -1416,7 +1424,13 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LED_Pin|DO1_PB12_Pin|DO2_PB13_Pin|DO3_PB14_Pin
-                          |DO4_PB15_Pin|ACHIQUE_CTRL_Pin, GPIO_PIN_RESET);
+                          |DO4_PB15_Pin, GPIO_PIN_RESET);
+
+  /* PB5 open-drain: SET = alta impedancia = rele desactivado. */
+  HAL_GPIO_WritePin(
+      ACHIQUE_CTRL_GPIO_Port,
+      ACHIQUE_CTRL_Pin,
+      GPIO_PIN_SET);
 
   /*Configure GPIO pin : TEMPE_Pin */
   GPIO_InitStruct.Pin = TEMPE_Pin;
