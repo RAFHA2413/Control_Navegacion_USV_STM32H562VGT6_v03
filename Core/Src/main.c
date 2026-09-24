@@ -108,6 +108,10 @@ uint8_t motores_pwm_activos = 0U;
 uint32_t motores_test_last_ms = 0U;
 uint8_t motores_test_estado = 0U;
 
+/* Prueba local de bomba de achique por PB5 / ACHIQUE_CTRL. */
+uint32_t bomba_test_last_ms = 0U;
+uint8_t bomba_test_estado = 0U;
+
 uint16_t corriente_adc_raw = 0U;
 float corriente_voltaje_v = 0.0f;
 float corriente_lem_a = 0.0f;
@@ -339,6 +343,14 @@ if ((HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1) == HAL_OK) &&
     motores_pwm_activos = 1U;
 }
 
+/* La prueba de bomba inicia siempre con el rele desenergizado. */
+HAL_GPIO_WritePin(
+    ACHIQUE_CTRL_GPIO_Port,
+    ACHIQUE_CTRL_Pin,
+    GPIO_PIN_RESET);
+bomba_test_estado = 0U;
+bomba_test_last_ms = HAL_GetTick();
+
 uartx_write_text(&huart6, "INICIANDO\r\n");
 //uartRX_it_idle_dma_init(&UARTRX1);
 uartRX_it_idle_dma_init(&GPS_UARTRX);   // USART1 / estacion de tierra
@@ -445,6 +457,39 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             &htim3,
             TIM_CHANNEL_4,
             motor_estribor_pwm_us);
+    }
+
+    /*
+     * PRUEBA LOCAL BOMBA DE ACHIQUE 10.1:
+     * PB5 / ACHIQUE_CTRL controla el rele de la bomba.
+     *
+     * Secuencia:
+     *   5 s apagada -> 5 s encendida -> repetir.
+     *
+     * Los motores de propulsion permanecen en NEUTRO durante la prueba.
+     * Se mantienen activos los sensores y Teleplot para observar
+     * voltaje, corriente, temperatura y humedad durante la conmutacion.
+     */
+    if ((HAL_GetTick() - bomba_test_last_ms) >= 5000U)
+    {
+        bomba_test_last_ms = HAL_GetTick();
+
+        if (bomba_test_estado == 0U)
+        {
+            HAL_GPIO_WritePin(
+                ACHIQUE_CTRL_GPIO_Port,
+                ACHIQUE_CTRL_Pin,
+                GPIO_PIN_SET);
+            bomba_test_estado = 1U;
+        }
+        else
+        {
+            HAL_GPIO_WritePin(
+                ACHIQUE_CTRL_GPIO_Port,
+                ACHIQUE_CTRL_Pin,
+                GPIO_PIN_RESET);
+            bomba_test_estado = 0U;
+        }
     }
 
     /*
@@ -565,7 +610,8 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             ">servo_pwm_us:%lu\r\n"
             ">motores_pwm_activos:%u\r\n"
             ">motor_babor_pwm_us:%u\r\n"
-            ">motor_estribor_pwm_us:%u\r\n",
+            ">motor_estribor_pwm_us:%u\r\n"
+            ">bomba_achique:%u\r\n",
             (unsigned int)adc1_codigo[2],
             humedad_pct,
             temperatura_c,
@@ -573,7 +619,8 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned long)TIM3->CCR3,
             (unsigned int)motores_pwm_activos,
             (unsigned int)motor_babor_pwm_us,
-            (unsigned int)motor_estribor_pwm_us);
+            (unsigned int)motor_estribor_pwm_us,
+            (unsigned int)bomba_test_estado);
 
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
