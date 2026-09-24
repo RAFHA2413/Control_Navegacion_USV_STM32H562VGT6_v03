@@ -301,7 +301,6 @@ int main(void)
   MX_TIM3_Init();
   MX_USART3_UART_Init();
   MX_ADC1_Init();
-
   /* USER CODE BEGIN 2 */
 
 /*
@@ -1439,9 +1438,9 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(HUMIDITY_DO_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : LED_Pin DO1_PB12_Pin DO2_PB13_Pin DO3_PB14_Pin
-                           DO4_PB15_Pin ACHIQUE_CTRL_Pin */
+                           DO4_PB15_Pin */
   GPIO_InitStruct.Pin = LED_Pin|DO1_PB12_Pin|DO2_PB13_Pin|DO3_PB14_Pin
-                          |DO4_PB15_Pin|ACHIQUE_CTRL_Pin;
+                          |DO4_PB15_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -1454,6 +1453,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   GPIO_InitStruct.Alternate = GPIO_AF0_TRACE;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : ACHIQUE_CTRL_Pin */
+  GPIO_InitStruct.Pin = ACHIQUE_CTRL_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(ACHIQUE_CTRL_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
