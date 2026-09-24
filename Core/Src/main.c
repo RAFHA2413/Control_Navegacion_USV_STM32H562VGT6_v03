@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include "imu_bno085_i2c.h"
 #include "TELEMETRIA_USV.h"
+#include "trama_usv.h"
 #include <math.h>
 #include "stm32h5xx_hal_gpio.h"
 #include "string.h"
@@ -114,6 +115,10 @@ float corriente_lem_a = 0.0f;
 uint16_t bateria_adc_raw = 0U;
 float bateria_adc_v = 0.0f;
 float bateria_voltaje_v = 0.0f;
+
+/* Ultima trama $PUSVU decodificada desde USART1 / estacion de tierra. */
+USV_Comando comando_tierra;
+uint8_t comando_tierra_valido = 0U;
 
 char teleplot_tx[240];
 uint8_t imu_raw[23];
@@ -719,23 +724,63 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         }
     } */
 
-    // Verifica si USART1 recibió una trama desde Tierra mediante ReceiveToIdle por interrupción
+    /*
+     * RECEPCION $PUSVU DESDE TIERRA POR USART1:
+     *
+     * La captura sigue la misma filosofia usada en gps.c:
+     * se recibe una cadena ASCII y se separa por campos delimitados por comas.
+     * trama_usv.c realiza esa separacion mediante USV_SepararCampos() y
+     * USV_LeerComando() valida exactamente:
+     *
+     * $PUSVU,babor,estribor,camara,bomba,parada\r\n
+     *
+     * En esta etapa 9.2 solo se valida y decodifica la trama.
+     * La aplicacion de las ordenes a motores, servo y bomba se habilitara
+     * despues de comprobar primero la recepcion directa por cable.
+     */
     if (GPS_UARTRX.flag_rx == 1)
     {
-      PUSVU();
-	  	  		 sprintf(texto,"%.1f\r\n",ANG_SERVO);
-	  		 uartx_write_text(&huart6,texto);
-  
-      
-      /*
-         * Cada recepción actualiza la marca de tiempo del enlace.
-         * El parpadeo de PB2 se ejecuta abajo, sin bloquear el while.
-         */
-       // led_rx_ultimo_evento_ms = HAL_GetTick();
-       // led_rx_activo = 1U;
-HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-       //procesa_rx();                 // Decodifica $PUSVU y distribuye las ordenes del control de tierra
-        uartRX_DMA_Re_init(&GPS_UARTRX); // Reinicia ReceiveToIdle por interrupción para la siguiente trama
+        int len_rx;
+
+        comando_tierra_valido =
+            USV_LeerComando(
+                (const char *)GPS_UARTRX.trama_rx,
+                &comando_tierra);
+
+        if (comando_tierra_valido != 0U)
+        {
+            len_rx = snprintf(
+                texto,
+                sizeof(texto),
+                ">pusvu_ok:1\r\n"
+                ">cmd_babor:%u\r\n"
+                ">cmd_estribor:%u\r\n"
+                ">cmd_camara:%d\r\n"
+                ">cmd_bomba:%u\r\n"
+                ">cmd_parada:%u\r\n",
+                (unsigned int)comando_tierra.potencia_babor,
+                (unsigned int)comando_tierra.potencia_estribor,
+                (int)comando_tierra.camara,
+                (unsigned int)comando_tierra.bomba,
+                (unsigned int)comando_tierra.parada);
+        }
+        else
+        {
+            len_rx = snprintf(
+                texto,
+                sizeof(texto),
+                ">pusvu_ok:0\r\n");
+        }
+
+        if ((len_rx > 0) && ((size_t)len_rx < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+
+        /* Reinicia ReceiveToIdle para recibir la siguiente trama. */
+        uartRX_DMA_Re_init(&GPS_UARTRX);
     }
 
     /*
