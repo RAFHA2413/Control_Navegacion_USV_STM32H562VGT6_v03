@@ -405,42 +405,13 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
-     * PRUEBA LOCAL SERVO MG996R:
-     * Sin estacion de tierra. Usa exclusivamente la libreria servos.
-     * Secuencia cada 3 s: -90 -> 0 -> +90 -> 0 grados.
-     * No usa HAL_Delay para el movimiento del servo.
+     * PRUEBA 11.2 - DECODIFICACION PUSVU:
+     * El servo permanece fijo en 0 grados.
+     * Las ordenes de camara recibidas se decodifican y se muestran por
+     * USART6, pero NO se aplican fisicamente al servo en esta etapa.
      */
-    if ((HAL_GetTick() - servo_test_last_ms) >= 3000U)
-    {
-        servo_test_last_ms = HAL_GetTick();
-
-        switch (servo_test_estado)
-        {
-            case 0U:
-                servo_test_angulo = -90.0f;
-                break;
-
-            case 1U:
-                servo_test_angulo = 0.0f;
-                break;
-
-            case 2U:
-                servo_test_angulo = 90.0f;
-                break;
-
-            default:
-                servo_test_angulo = 0.0f;
-                break;
-        }
-
-        SERVO_ANG(&SERVO1, servo_test_angulo);
-
-        servo_test_estado++;
-        if (servo_test_estado > 3U)
-        {
-            servo_test_estado = 0U;
-        }
-    }
+    servo_test_angulo = 0.0f;
+    SERVO_ANG(&SERVO1, servo_test_angulo);
 
     /*
      * PRUEBA SENSOR DE BATERIA 8.1:
@@ -464,40 +435,17 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
-     * PRUEBA LOCAL BOMBA DE ACHIQUE 10.1:
-     * PB5 / ACHIQUE_CTRL controla el rele activo en LOW.
-     * PB5 esta configurado open-drain.
-     *
-     * Secuencia:
-     *   5 s apagada (SET/Hi-Z) -> 5 s encendida (RESET/0 V) -> repetir.
-     *
-     * Los motores de propulsion permanecen en NEUTRO durante la prueba.
-     * Se mantienen activos los sensores y Teleplot para observar
-     * voltaje, corriente, temperatura y humedad durante la conmutacion.
+     * PRUEBA 11.2 - DECODIFICACION PUSVU:
+     * La bomba permanece desactivada durante toda la prueba.
+     * PB5 es open-drain y el rele es activo en LOW:
+     * SET = Hi-Z = bomba OFF.
+     * La orden recibida se decodifica, pero NO se aplica al rele.
      */
-    if ((HAL_GetTick() - bomba_test_last_ms) >= 5000U)
-    {
-        bomba_test_last_ms = HAL_GetTick();
-
-        if (bomba_test_estado == 0U)
-        {
-            /* Activo en LOW: RESET fuerza PB5 a 0 V y energiza el rele. */
-            HAL_GPIO_WritePin(
-                ACHIQUE_CTRL_GPIO_Port,
-                ACHIQUE_CTRL_Pin,
-                GPIO_PIN_RESET);
-            bomba_test_estado = 1U;
-        }
-        else
-        {
-            /* SET libera PB5 (Hi-Z) y el pull-up del rele lo desactiva. */
-            HAL_GPIO_WritePin(
-                ACHIQUE_CTRL_GPIO_Port,
-                ACHIQUE_CTRL_Pin,
-                GPIO_PIN_SET);
-            bomba_test_estado = 0U;
-        }
-    }
+    HAL_GPIO_WritePin(
+        ACHIQUE_CTRL_GPIO_Port,
+        ACHIQUE_CTRL_Pin,
+        GPIO_PIN_SET);
+    bomba_test_estado = 0U;
 
     /*
      * PRUEBA SENSOR DE TEMPERATURA DS18B20:
@@ -565,9 +513,9 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             {
                 bateria_tx_v = 0.0f;
             }
-            else if (bateria_tx_v > 15.0f)
+            else if (bateria_tx_v > 14.0f)
             {
-                bateria_tx_v = 15.0f;
+                bateria_tx_v = 14.0f;
             }
 
             if (corriente_tx_a < 0.0f)
@@ -779,22 +727,24 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     } */
 
     /*
-     * RECEPCION $PUSVU DESDE TIERRA POR USART1:
+     * PRUEBA 11.2 - DECODIFICACION $PUSVU DESDE PC / TIERRA:
      *
-     * La captura sigue la misma filosofia usada en gps.c:
-     * se recibe una cadena ASCII y se separa por campos delimitados por comas.
-     * trama_usv.c realiza esa separacion mediante USV_SepararCampos() y
-     * USV_LeerComando() valida exactamente:
-     *
+     * Formato esperado:
      * $PUSVU,babor,estribor,camara,bomba,parada\r\n
      *
-     * En esta etapa 9.2 solo se valida y decodifica la trama.
-     * La aplicacion de las ordenes a motores, servo y bomba se habilitara
-     * despues de comprobar primero la recepcion directa por cable.
+     * En esta etapa SOLO se valida y decodifica la trama.
+     * Motores, servo y bomba permanecen en condicion segura y NO obedecen
+     * las ordenes recibidas hasta completar esta validacion.
      */
     if (GPS_UARTRX.flag_rx == 1)
     {
         int len_rx;
+        int16_t babor_signed = 0;
+        int16_t estribor_signed = 0;
+
+        /* Marca actividad de enlace para el diagnostico visual en PB2. */
+        led_rx_ultimo_evento_ms = HAL_GetTick();
+        led_rx_activo = 1U;
 
         comando_tierra_valido =
             USV_LeerComando(
@@ -803,17 +753,50 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
 
         if (comando_tierra_valido != 0U)
         {
+            if (comando_tierra.babor_avante != 0U)
+            {
+                babor_signed =
+                    (int16_t)comando_tierra.potencia_babor;
+            }
+            else if (comando_tierra.babor_atras != 0U)
+            {
+                babor_signed =
+                    -(int16_t)comando_tierra.potencia_babor;
+            }
+
+            if (comando_tierra.estribor_avante != 0U)
+            {
+                estribor_signed =
+                    (int16_t)comando_tierra.potencia_estribor;
+            }
+            else if (comando_tierra.estribor_atras != 0U)
+            {
+                estribor_signed =
+                    -(int16_t)comando_tierra.potencia_estribor;
+            }
+
             len_rx = snprintf(
                 texto,
                 sizeof(texto),
-                ">pusvu_ok:1\r\n"
-                ">cmd_babor:%u\r\n"
-                ">cmd_estribor:%u\r\n"
-                ">cmd_camara:%d\r\n"
-                ">cmd_bomba:%u\r\n"
-                ">cmd_parada:%u\r\n",
-                (unsigned int)comando_tierra.potencia_babor,
-                (unsigned int)comando_tierra.potencia_estribor,
+                "\r\n"
+                "===== PUSVU DECODIFICADA =====\r\n"
+                "PUSVU_OK          : 1\r\n"
+                "Babor recibido    : %d %%\r\n"
+                "Estribor recibido : %d %%\r\n"
+                "Babor avante      : %u\r\n"
+                "Babor atras       : %u\r\n"
+                "Estribor avante   : %u\r\n"
+                "Estribor atras    : %u\r\n"
+                "Camara            : %d grados\r\n"
+                "Bomba             : %u\r\n"
+                "Parada emergencia : %u\r\n"
+                "==============================\r\n",
+                (int)babor_signed,
+                (int)estribor_signed,
+                (unsigned int)comando_tierra.babor_avante,
+                (unsigned int)comando_tierra.babor_atras,
+                (unsigned int)comando_tierra.estribor_avante,
+                (unsigned int)comando_tierra.estribor_atras,
                 (int)comando_tierra.camara,
                 (unsigned int)comando_tierra.bomba,
                 (unsigned int)comando_tierra.parada);
@@ -823,15 +806,18 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             len_rx = snprintf(
                 texto,
                 sizeof(texto),
-                ">pusvu_ok:0\r\n");
+                "\r\n"
+                "===== PUSVU INVALIDA =====\r\n"
+                "PUSVU_OK : 0\r\n"
+                "RX       : %s"
+                "==========================\r\n",
+                (char *)GPS_UARTRX.trama_rx);
         }
 
         if ((len_rx > 0) && ((size_t)len_rx < sizeof(texto)))
         {
             uartx_write_text(&huart6, texto);
         }
-
-        HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 
         /* Reinicia ReceiveToIdle para recibir la siguiente trama. */
         uartRX_DMA_Re_init(&GPS_UARTRX);
