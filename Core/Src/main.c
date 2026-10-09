@@ -95,6 +95,8 @@ float imu_yaw = 0.0f;
 uint32_t imu_last_ms = 0U;
 uint32_t teleplot_last_ms = 0U;
 uint32_t temperatura_last_ms = 0U;
+uint32_t temperatura_conversion_inicio_ms = 0U;
+uint8_t temperatura_conversion_activa = 0U;
 float temperatura_c = -100.0f;
 uint8_t gps_rmc_ok = 0U;
 uint8_t gps_gga_ok = 0U;
@@ -123,6 +125,11 @@ float bateria_voltaje_v = 0.0f;
 /* Ultima trama $PUSVU decodificada desde USART1 / estacion de tierra. */
 USV_Comando comando_tierra;
 uint8_t comando_tierra_valido = 0U;
+
+/* Diagnostico desacoplado de la recepcion para no bloquear USART1. */
+uint32_t pusvu_diag_last_ms = 0U;
+uint8_t pusvu_diag_pendiente = 0U;
+uint8_t pusvu_diag_ultimo_valido = 0U;
 
 char teleplot_tx[240];
 uint8_t imu_raw[23];
@@ -448,15 +455,38 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     bomba_test_estado = 0U;
 
     /*
-     * PRUEBA SENSOR DE TEMPERATURA DS18B20:
-     * PC2 = TEMPE = bus 1-Wire.
-     * La libreria realiza internamente la conversion y devuelve grados Celsius.
-     * Se actualiza cada 2 s. TEMPE_Read() es bloqueante durante ~750 ms.
+     * TEMPERATURA DS18B20 NO BLOQUEANTE:
+     *
+     * La conversion se inicia cada 2 s y el main continua ejecutandose.
+     * Transcurridos 750 ms se lee el scratchpad. De esta forma USART1,
+     * Teleplot, IMU y el resto de tareas siguen siendo atendidos durante
+     * el tiempo de conversion del sensor.
      */
-    if ((HAL_GetTick() - temperatura_last_ms) >= 2000U)
     {
-        temperatura_last_ms = HAL_GetTick();
-        temperatura_c = TEMPE_Read();
+        uint32_t ahora_temp = HAL_GetTick();
+
+        if (temperatura_conversion_activa == 0U)
+        {
+            if ((uint32_t)(ahora_temp - temperatura_last_ms) >= 2000U)
+            {
+                temperatura_last_ms = ahora_temp;
+
+                if (TEMPE_StartConversion() != 0U)
+                {
+                    temperatura_conversion_inicio_ms = ahora_temp;
+                    temperatura_conversion_activa = 1U;
+                }
+                else
+                {
+                    temperatura_c = -100.0f;
+                }
+            }
+        }
+        else if ((uint32_t)(ahora_temp - temperatura_conversion_inicio_ms) >= 750U)
+        {
+            temperatura_c = TEMPE_ReadResult();
+            temperatura_conversion_activa = 0U;
+        }
     }
 
     /*
@@ -727,22 +757,17 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     } */
 
     /*
-     * PRUEBA 11.2 - DECODIFICACION $PUSVU DESDE PC / TIERRA:
+     * PRUEBA 11.3 - RECEPCION $PUSVU SIN BLOQUEO DE DIAGNOSTICO:
      *
-     * Formato esperado:
-     * $PUSVU,babor,estribor,camara,bomba,parada\r\n
+     * La trama se valida inmediatamente y ReceiveToIdle se reactiva antes
+     * de imprimir por USART6. El diagnostico detallado se limita a 2 Hz
+     * para evitar que la consola interfiera con la recepcion de comandos.
      *
-     * En esta etapa SOLO se valida y decodifica la trama.
-     * Motores, servo y bomba permanecen en condicion segura y NO obedecen
-     * las ordenes recibidas hasta completar esta validacion.
+     * Los actuadores continúan bloqueados en condicion segura durante
+     * esta etapa de validacion.
      */
     if (GPS_UARTRX.flag_rx == 1)
     {
-        int len_rx;
-        int16_t babor_signed = 0;
-        int16_t estribor_signed = 0;
-
-        /* Marca actividad de enlace para el diagnostico visual en PB2. */
         led_rx_ultimo_evento_ms = HAL_GetTick();
         led_rx_activo = 1U;
 
@@ -751,8 +776,30 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
                 (const char *)GPS_UARTRX.trama_rx,
                 &comando_tierra);
 
-        if (comando_tierra_valido != 0U)
+        pusvu_diag_ultimo_valido = comando_tierra_valido;
+        pusvu_diag_pendiente = 1U;
+
+        /*
+         * Prioridad: reactivar USART1 inmediatamente.
+         * La impresion del diagnostico se realiza despues.
+         */
+        uartRX_DMA_Re_init(&GPS_UARTRX);
+    }
+
+    /*
+     * Diagnostico $PUSVU por USART6 limitado a 500 ms.
+     * Siempre muestra la ultima orden recibida.
+     */
+    if ((pusvu_diag_pendiente != 0U) &&
+        ((uint32_t)(HAL_GetTick() - pusvu_diag_last_ms) >= 500U))
+    {
+        int len_rx;
+
+        if (pusvu_diag_ultimo_valido != 0U)
         {
+            int16_t babor_signed = 0;
+            int16_t estribor_signed = 0;
+
             if (comando_tierra.babor_avante != 0U)
             {
                 babor_signed =
@@ -809,9 +856,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
                 "\r\n"
                 "===== PUSVU INVALIDA =====\r\n"
                 "PUSVU_OK : 0\r\n"
-                "RX       : %s"
-                "==========================\r\n",
-                (char *)GPS_UARTRX.trama_rx);
+                "==========================\r\n");
         }
 
         if ((len_rx > 0) && ((size_t)len_rx < sizeof(texto)))
@@ -819,8 +864,8 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             uartx_write_text(&huart6, texto);
         }
 
-        /* Reinicia ReceiveToIdle para recibir la siguiente trama. */
-        uartRX_DMA_Re_init(&GPS_UARTRX);
+        pusvu_diag_last_ms = HAL_GetTick();
+        pusvu_diag_pendiente = 0U;
     }
 
     /*

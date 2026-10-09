@@ -73,18 +73,21 @@ void TEMPE_Init(void)
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 }
 
-float TEMPE_Read(void)
+uint8_t TEMPE_StartConversion(void)
 {
-    uint8_t temp_lsb, temp_msb;
-    int16_t temp_raw;
-
     if (!DS18B20_Reset())
-        return -100.0f;
+        return 0U;
 
     DS18B20_WriteByte(0xCC); // SKIP ROM
     DS18B20_WriteByte(0x44); // CONVERT T
 
-    HAL_Delay(750); // Tiempo máximo de conversión
+    return 1U;
+}
+
+float TEMPE_ReadResult(void)
+{
+    uint8_t temp_lsb, temp_msb;
+    int16_t temp_raw;
 
     if (!DS18B20_Reset())
         return -100.0f;
@@ -98,4 +101,18 @@ float TEMPE_Read(void)
     temp_raw = (temp_msb << 8) | temp_lsb;
 
     return temp_raw / 16.0f;
+}
+
+/*
+ * Funcion bloqueante conservada por compatibilidad.
+ * El main del USV usa StartConversion/ReadResult para no detenerse 750 ms.
+ */
+float TEMPE_Read(void)
+{
+    if (TEMPE_StartConversion() == 0U)
+        return -100.0f;
+
+    HAL_Delay(750U);
+
+    return TEMPE_ReadResult();
 }
