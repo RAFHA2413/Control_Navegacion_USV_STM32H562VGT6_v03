@@ -43,11 +43,15 @@ extern I2C_HandleTypeDef hi2c1;
 /* 50 000 us = 50 ms = 20 Hz */
 #define IMU_REPORT_INTERVAL_US           50000UL
 
-#define IMU_I2C_TIMEOUT_MS               200U
+/*
+ * 11.4: timeouts acotados para que una falla o ausencia temporal del BNO085
+ * no detenga el lazo principal durante segundos.
+ */
+#define IMU_I2C_TIMEOUT_MS               20U
 #define IMU_PAYLOAD_BUFFER_SIZE          128U
 #define IMU_I2C_DATA_CHUNK               28U
 #define IMU_MAX_PACKET_LENGTH            1024U
-#define IMU_MAX_PACKETS_PER_READ         12U
+#define IMU_MAX_PACKETS_PER_READ         3U
 
 /* ------------------------------------------------------------------------- */
 /* Estado interno                                                            */

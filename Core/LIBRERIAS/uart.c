@@ -12,15 +12,39 @@
 
 void uartx_write(UART_HandleTypeDef *huart,uint8_t ch)
 {
-HAL_UART_Transmit(huart, &ch, 1, 0xffff);
+    if (huart == NULL)
+    {
+        return;
+    }
 
+    (void)HAL_UART_Transmit(huart, &ch, 1U, 10U);
 }
 
 void uartx_write_text(UART_HandleTypeDef *huart,char *info)
 {
+    size_t longitud;
 
-while(*info)  uartx_write(huart,*info++);
+    if ((huart == NULL) || (info == NULL))
+    {
+        return;
+    }
 
+    longitud = strlen(info);
+
+    if (longitud == 0U)
+    {
+        return;
+    }
+
+    /*
+     * 11.4: transmite el bloque completo en una sola llamada HAL.
+     * Evita enviar caracter por caracter con timeout 0xFFFF.
+     */
+    (void)HAL_UART_Transmit(
+        huart,
+        (uint8_t *)info,
+        (uint16_t)longitud,
+        100U);
 }
 
 

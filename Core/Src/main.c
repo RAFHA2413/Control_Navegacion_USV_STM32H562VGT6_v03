@@ -94,6 +94,11 @@ float imu_yaw = 0.0f;
 
 uint32_t imu_last_ms = 0U;
 uint32_t teleplot_last_ms = 0U;
+
+/* Heartbeat del lazo principal: incrementa una vez por segundo. */
+uint32_t main_alive_last_ms = 0U;
+uint32_t main_alive = 0U;
+
 uint32_t temperatura_last_ms = 0U;
 uint32_t temperatura_conversion_inicio_ms = 0U;
 uint8_t temperatura_conversion_activa = 0U;
@@ -392,6 +397,16 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    /*
+     * Heartbeat de diagnostico.
+     * Si main_alive sigue aumentando, el while(1) continua ejecutandose.
+     */
+    if ((uint32_t)(HAL_GetTick() - main_alive_last_ms) >= 1000U)
+    {
+        main_alive_last_ms = HAL_GetTick();
+        main_alive++;
+    }
+
     /* Lectura IMU cada 50 ms */
     if ((HAL_GetTick() - imu_last_ms) >= 50U)
     {
@@ -490,11 +505,11 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
-     * TELEPLOT SEGURO:
-     * Se divide la salida en bloques pequenos y se usa snprintf()
-     * para evitar que una sola cadena grande desborde el buffer texto.
+     * TELEPLOT SEGURO 11.4:
+     * Se limita a 2 Hz para reducir la carga de USART6 durante la prueba
+     * continua de comunicacion con la estacion de tierra.
      */
-    if ((HAL_GetTick() - teleplot_last_ms) >= 200U)
+    if ((HAL_GetTick() - teleplot_last_ms) >= 500U)
     {
         float humedad_pct;
         int len;
@@ -596,7 +611,8 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             ">motores_pwm_activos:%u\r\n"
             ">motor_babor_pwm_us:%u\r\n"
             ">motor_estribor_pwm_us:%u\r\n"
-            ">bomba_achique:%u\r\n",
+            ">bomba_achique:%u\r\n"
+            ">main_alive:%lu\r\n",
             (unsigned int)adc1_codigo[2],
             humedad_pct,
             temperatura_c,
@@ -605,7 +621,8 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned int)motores_pwm_activos,
             (unsigned int)motor_babor_pwm_us,
             (unsigned int)motor_estribor_pwm_us,
-            (unsigned int)bomba_test_estado);
+            (unsigned int)bomba_test_estado,
+            (unsigned long)main_alive);
 
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
