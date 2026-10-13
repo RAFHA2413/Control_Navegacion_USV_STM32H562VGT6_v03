@@ -56,6 +56,14 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+/*
+ * PRUEBA 12.0:
+ * La estacion puede ordenar -100..+100 %, pero durante esta primera
+ * prueba fisica la salida de cada motor se limita a +/-30 %.
+ */
+#define USV_PRUEBA_MOTOR_LIMITE_PCT   30
+#define USV_FAILSAFE_TIERRA_MS         500U
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -130,6 +138,18 @@ float bateria_voltaje_v = 0.0f;
 /* Ultima trama $PUSVU decodificada desde USART1 / estacion de tierra. */
 USV_Comando comando_tierra;
 uint8_t comando_tierra_valido = 0U;
+
+/* Estado de control remoto para la prueba 12.0. */
+int16_t cmd_babor_rx_pct = 0;
+int16_t cmd_estribor_rx_pct = 0;
+int16_t cmd_camara_rx_deg = 0;
+int16_t motor_babor_aplicado_pct = 0;
+int16_t motor_estribor_aplicado_pct = 0;
+uint8_t parada_rx = 0U;
+uint8_t enlace_tierra_ok = 0U;
+uint8_t failsafe_tierra_activo = 1U;
+uint32_t comando_tierra_ultimo_valido_ms = 0U;
+uint32_t pusvu_rx_validas = 0U;
 
 /* Diagnostico desacoplado de la recepcion para no bloquear USART1. */
 uint32_t pusvu_diag_last_ms = 0U;
@@ -251,6 +271,69 @@ static void USV_ActualizarTelemetriaIMU(
         (int16_t)pitch_x10,
         (int16_t)roll_x10);
 }
+
+/*
+ * Reconstruye el porcentaje con signo desde la estructura decodificada.
+ * Positivo = avante, negativo = reversa.
+ */
+static int16_t USV_ComandoMotorFirmado(
+        uint16_t potencia,
+        uint8_t avante,
+        uint8_t atras)
+{
+    if ((avante != 0U) && (atras == 0U))
+    {
+        return (int16_t)potencia;
+    }
+
+    if ((avante == 0U) && (atras != 0U))
+    {
+        return -(int16_t)potencia;
+    }
+
+    return 0;
+}
+
+/*
+ * Limita el porcentaje de prueba y lo convierte a PWM ESC:
+ * -100 % = 1000 us, 0 % = 1500 us, +100 % = 2000 us.
+ * Para la prueba 12.0 el limite externo es +/-30 %.
+ */
+static uint16_t USV_MotorPctAPwmPrueba(
+        int16_t porcentaje,
+        int16_t *porcentaje_aplicado)
+{
+    int16_t limitado = porcentaje;
+    int32_t pwm;
+
+    if (limitado > USV_PRUEBA_MOTOR_LIMITE_PCT)
+    {
+        limitado = USV_PRUEBA_MOTOR_LIMITE_PCT;
+    }
+    else if (limitado < -USV_PRUEBA_MOTOR_LIMITE_PCT)
+    {
+        limitado = -USV_PRUEBA_MOTOR_LIMITE_PCT;
+    }
+
+    if (porcentaje_aplicado != NULL)
+    {
+        *porcentaje_aplicado = limitado;
+    }
+
+    pwm = (int32_t)PWM_NEUTRO + ((int32_t)limitado * 5);
+
+    if (pwm > PWM_MAX_ADELANTE)
+    {
+        pwm = PWM_MAX_ADELANTE;
+    }
+    else if (pwm < PWM_MAX_REVERSA)
+    {
+        pwm = PWM_MAX_REVERSA;
+    }
+
+    return (uint16_t)pwm;
+}
+
 /* void procesa_rx()
  {
   char procesa[100];
@@ -427,41 +510,16 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     }
 
     /*
-     * PRUEBA 11.2 - DECODIFICACION PUSVU:
-     * El servo permanece fijo en 0 grados.
-     * Las ordenes de camara recibidas se decodifican y se muestran por
-     * USART6, pero NO se aplican fisicamente al servo en esta etapa.
+     * PRUEBA 12.0:
+     * Servo y motores ya no se fuerzan aqui a una posicion fija.
+     * Las salidas se actualizan exclusivamente cuando llega una $PUSVU
+     * valida y por el failsafe de perdida de enlace definido mas abajo.
      */
-    servo_test_angulo = 0.0f;
-    SERVO_ANG(&SERVO1, servo_test_angulo);
 
     /*
-     * PRUEBA SENSOR DE BATERIA 8.1:
-     * Los motores permanecen en NEUTRO durante toda la prueba
-     * para validar primero la medicion de PC1 / ADC1_INP11.
-     */
-    if (motores_pwm_activos != 0U)
-    {
-        motor_babor_pwm_us = PWM_NEUTRO;
-        motor_estribor_pwm_us = PWM_NEUTRO;
-
-        USV_Motor_Set(
-            &htim3,
-            TIM_CHANNEL_1,
-            motor_babor_pwm_us);
-
-        USV_Motor_Set(
-            &htim3,
-            TIM_CHANNEL_4,
-            motor_estribor_pwm_us);
-    }
-
-    /*
-     * PRUEBA 11.2 - DECODIFICACION PUSVU:
-     * La bomba permanece desactivada durante toda la prueba.
-     * PB5 es open-drain y el rele es activo en LOW:
-     * SET = Hi-Z = bomba OFF.
-     * La orden recibida se decodifica, pero NO se aplica al rele.
+     * PRUEBA 12.0:
+     * La bomba permanece desactivada. Esta etapa habilita unicamente
+     * servo de camara y los dos motores de propulsion.
      */
     HAL_GPIO_WritePin(
         ACHIQUE_CTRL_GPIO_Port,
@@ -608,9 +666,18 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             ">temperatura_c:%.2f\r\n"
             ">servo_angulo:%.1f\r\n"
             ">servo_pwm_us:%lu\r\n"
+            ">cmd_babor_rx_pct:%d\r\n"
+            ">cmd_estribor_rx_pct:%d\r\n"
+            ">cmd_camara_rx_deg:%d\r\n"
+            ">motor_babor_aplicado_pct:%d\r\n"
+            ">motor_estribor_aplicado_pct:%d\r\n"
             ">motores_pwm_activos:%u\r\n"
             ">motor_babor_pwm_us:%u\r\n"
             ">motor_estribor_pwm_us:%u\r\n"
+            ">parada_rx:%u\r\n"
+            ">enlace_tierra_ok:%u\r\n"
+            ">failsafe_tierra:%u\r\n"
+            ">pusvu_rx_validas:%lu\r\n"
             ">bomba_achique:%u\r\n"
             ">main_alive:%lu\r\n",
             (unsigned int)adc1_codigo[2],
@@ -618,9 +685,18 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             temperatura_c,
             servo_test_angulo,
             (unsigned long)TIM3->CCR3,
+            (int)cmd_babor_rx_pct,
+            (int)cmd_estribor_rx_pct,
+            (int)cmd_camara_rx_deg,
+            (int)motor_babor_aplicado_pct,
+            (int)motor_estribor_aplicado_pct,
             (unsigned int)motores_pwm_activos,
             (unsigned int)motor_babor_pwm_us,
             (unsigned int)motor_estribor_pwm_us,
+            (unsigned int)parada_rx,
+            (unsigned int)enlace_tierra_ok,
+            (unsigned int)failsafe_tierra_activo,
+            (unsigned long)pusvu_rx_validas,
             (unsigned int)bomba_test_estado,
             (unsigned long)main_alive);
 
@@ -774,18 +850,21 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     } */
 
     /*
-     * PRUEBA 11.3 - RECEPCION $PUSVU SIN BLOQUEO DE DIAGNOSTICO:
+     * PRUEBA 12.0 - CONTROL REAL DESDE $PUSVU:
      *
-     * La trama se valida inmediatamente y ReceiveToIdle se reactiva antes
-     * de imprimir por USART6. El diagnostico detallado se limita a 2 Hz
-     * para evitar que la consola interfiera con la recepcion de comandos.
+     * Una trama valida actualiza inmediatamente:
+     * - servo PB0 / TIM3_CH3;
+     * - motor babor PB4 / TIM3_CH1;
+     * - motor estribor PB1 / TIM3_CH4.
      *
-     * Los actuadores continúan bloqueados en condicion segura durante
-     * esta etapa de validacion.
+     * Los motores se limitan temporalmente a +/-30 %.
+     * parada=1 mantiene ambos ESC en NEUTRO.
      */
     if (GPS_UARTRX.flag_rx == 1)
     {
-        led_rx_ultimo_evento_ms = HAL_GetTick();
+        uint32_t ahora_rx = HAL_GetTick();
+
+        led_rx_ultimo_evento_ms = ahora_rx;
         led_rx_activo = 1U;
 
         comando_tierra_valido =
@@ -796,11 +875,102 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         pusvu_diag_ultimo_valido = comando_tierra_valido;
         pusvu_diag_pendiente = 1U;
 
+        if (comando_tierra_valido != 0U)
+        {
+            cmd_babor_rx_pct =
+                USV_ComandoMotorFirmado(
+                    comando_tierra.potencia_babor,
+                    comando_tierra.babor_avante,
+                    comando_tierra.babor_atras);
+
+            cmd_estribor_rx_pct =
+                USV_ComandoMotorFirmado(
+                    comando_tierra.potencia_estribor,
+                    comando_tierra.estribor_avante,
+                    comando_tierra.estribor_atras);
+
+            cmd_camara_rx_deg = comando_tierra.camara;
+            parada_rx = comando_tierra.parada;
+
+            comando_tierra_ultimo_valido_ms = ahora_rx;
+            enlace_tierra_ok = 1U;
+            failsafe_tierra_activo = 0U;
+            pusvu_rx_validas++;
+
+            /* La camara sigue directamente el comando -90..+90 grados. */
+            servo_test_angulo = (float)cmd_camara_rx_deg;
+            SERVO_ANG(&SERVO1, servo_test_angulo);
+
+            if ((parada_rx != 0U) || (motores_pwm_activos == 0U))
+            {
+                motor_babor_aplicado_pct = 0;
+                motor_estribor_aplicado_pct = 0;
+                motor_babor_pwm_us = PWM_NEUTRO;
+                motor_estribor_pwm_us = PWM_NEUTRO;
+            }
+            else
+            {
+                motor_babor_pwm_us =
+                    USV_MotorPctAPwmPrueba(
+                        cmd_babor_rx_pct,
+                        &motor_babor_aplicado_pct);
+
+                motor_estribor_pwm_us =
+                    USV_MotorPctAPwmPrueba(
+                        cmd_estribor_rx_pct,
+                        &motor_estribor_aplicado_pct);
+            }
+
+            if (motores_pwm_activos != 0U)
+            {
+                USV_Motor_Set(
+                    &htim3,
+                    TIM_CHANNEL_1,
+                    motor_babor_pwm_us);
+
+                USV_Motor_Set(
+                    &htim3,
+                    TIM_CHANNEL_4,
+                    motor_estribor_pwm_us);
+            }
+        }
+
         /*
          * Prioridad: reactivar USART1 inmediatamente.
          * La impresion del diagnostico se realiza despues.
          */
         uartRX_DMA_Re_init(&GPS_UARTRX);
+    }
+
+    /*
+     * FAILSAFE DE ENLACE:
+     * Si pasan mas de 500 ms sin una $PUSVU valida, ambos motores vuelven
+     * a NEUTRO. El servo conserva la ultima posicion recibida.
+     */
+    if ((enlace_tierra_ok != 0U) &&
+        ((uint32_t)(HAL_GetTick() - comando_tierra_ultimo_valido_ms) >
+         USV_FAILSAFE_TIERRA_MS))
+    {
+        enlace_tierra_ok = 0U;
+        failsafe_tierra_activo = 1U;
+
+        motor_babor_aplicado_pct = 0;
+        motor_estribor_aplicado_pct = 0;
+        motor_babor_pwm_us = PWM_NEUTRO;
+        motor_estribor_pwm_us = PWM_NEUTRO;
+
+        if (motores_pwm_activos != 0U)
+        {
+            USV_Motor_Set(
+                &htim3,
+                TIM_CHANNEL_1,
+                motor_babor_pwm_us);
+
+            USV_Motor_Set(
+                &htim3,
+                TIM_CHANNEL_4,
+                motor_estribor_pwm_us);
+        }
     }
 
     /*
@@ -854,6 +1024,9 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
                 "Camara            : %d grados\r\n"
                 "Bomba             : %u\r\n"
                 "Parada emergencia : %u\r\n"
+                "Babor aplicado    : %d %% / %u us\r\n"
+                "Estribor aplicado : %d %% / %u us\r\n"
+                "Failsafe enlace   : %u\r\n"
                 "==============================\r\n",
                 (int)babor_signed,
                 (int)estribor_signed,
@@ -863,7 +1036,12 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
                 (unsigned int)comando_tierra.estribor_atras,
                 (int)comando_tierra.camara,
                 (unsigned int)comando_tierra.bomba,
-                (unsigned int)comando_tierra.parada);
+                (unsigned int)comando_tierra.parada,
+                (int)motor_babor_aplicado_pct,
+                (unsigned int)motor_babor_pwm_us,
+                (int)motor_estribor_aplicado_pct,
+                (unsigned int)motor_estribor_pwm_us,
+                (unsigned int)failsafe_tierra_activo);
         }
         else
         {
