@@ -57,11 +57,11 @@
 /* USER CODE BEGIN PD */
 
 /*
- * PRUEBA 12.0:
- * La estacion puede ordenar -100..+100 %, pero durante esta primera
- * prueba fisica la salida de cada motor se limita a +/-30 %.
+ * PRUEBA 12.1:
+ * La estacion puede ordenar y aplicar el rango completo -100..+100 %.
+ * Se mantienen parada de emergencia y failsafe de enlace a 500 ms.
  */
-#define USV_PRUEBA_MOTOR_LIMITE_PCT   30
+#define USV_PRUEBA_MOTOR_LIMITE_PCT   100
 #define USV_FAILSAFE_TIERRA_MS         500U
 
 /* USER CODE END PD */
@@ -297,7 +297,7 @@ static int16_t USV_ComandoMotorFirmado(
 /*
  * Limita el porcentaje de prueba y lo convierte a PWM ESC:
  * -100 % = 1000 us, 0 % = 1500 us, +100 % = 2000 us.
- * Para la prueba 12.0 el limite externo es +/-30 %.
+ * Para la prueba 12.1 se habilita el rango completo +/-100 %.
  */
 static uint16_t USV_MotorPctAPwmPrueba(
         int16_t porcentaje,
@@ -857,7 +857,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
      * - motor babor PB4 / TIM3_CH1;
      * - motor estribor PB1 / TIM3_CH4.
      *
-     * Los motores se limitan temporalmente a +/-30 %.
+     * Los motores usan el rango completo -100..+100 %.
      * parada=1 mantiene ambos ESC en NEUTRO.
      */
     if (GPS_UARTRX.flag_rx == 1)
