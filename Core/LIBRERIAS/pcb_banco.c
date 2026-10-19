@@ -114,6 +114,9 @@ static void Command(char *s)
     {
         if (n < -30 || n > 30)
         { Reject("PCB SERVO fuera de -30..30.\r\n"); return; }
+        /* Activa salida PWM solo despues de ARM + orden explicita. */
+        if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3) != HAL_OK)
+        { Reject("PCB ERROR: PWM servo no inicio.\r\n"); return; }
         servo_test_angulo = (float)n;
         SERVO_ANG(&SERVO1, servo_test_angulo);
         Msg("PCB SERVO OK\r\n");

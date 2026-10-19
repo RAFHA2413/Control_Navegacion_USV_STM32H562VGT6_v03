@@ -417,8 +417,13 @@ HAL_GPIO_WritePin(
 HAL_Delay(300U);
 
 // Inicializa la señal PWM en el pin PB0 (SERVO_CAMARA)
+#if !PCB_BANCO_ACTIVO
 SERVO_init(&SERVO1);
-SERVO_ANG(&SERVO1, 0.0f); // Posiciona inicialmente la cámara al centro (0°)
+SERVO_ANG(&SERVO1, 0.0f);
+#else
+/* En banco, no generar PWM del servo hasta recibir orden manual. */
+servo_test_angulo = 0.0f;
+#endif // Posiciona inicialmente la cámara al centro (0°)
 
 /*
  * PRUEBA LOCAL MOTORES 6.2:

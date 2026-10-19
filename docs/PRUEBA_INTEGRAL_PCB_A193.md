@@ -43,3 +43,5 @@ ARM nunca pone motores en movimiento; cada actuador exige comando manual y todos
 
 ## Alcance
 Esta rama impide que los comandos de la estacion por USART1 accionen motores y servo; sigue leyendo entradas y enviando telemetria. Teleplot agrega pcb_armado, pcb_motor_pulso, pcb_bomba_pulso, pcb_do_pulso, di1..di4, humedad_do. Solo firmware de ensayo; no usar para navegacion.
+
+**Servo al encender:** en esta rama no se inicia PWM TIM3_CH3 al arrancar. La primera orden PCB SERVO, posterior a PCB ARM, habilita el PWM y posiciona la camara; PCB STOP devuelve al centro. Una vez habilitado PWM durante la sesion, un reinicio corta la salida hasta una nueva orden.
