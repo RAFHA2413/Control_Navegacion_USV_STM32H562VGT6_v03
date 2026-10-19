@@ -31,6 +31,7 @@ static volatile uint8_t rx_fault;
 static char line[LINE_SIZE];
 static uint8_t line_len;
 static uint8_t armed, motor_on, pump_on, do_on;
+static uint8_t servo_pwm_started = 0U;
 static uint32_t arm_deadline, motor_deadline, pump_deadline, do_deadline;
 
 static uint8_t Expired(uint32_t now, uint32_t deadline)
@@ -114,9 +115,13 @@ static void Command(char *s)
     {
         if (n < -30 || n > 30)
         { Reject("PCB SERVO fuera de -30..30.\r\n"); return; }
-        /* Activa salida PWM solo despues de ARM + orden explicita. */
-        if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3) != HAL_OK)
-        { Reject("PCB ERROR: PWM servo no inicio.\r\n"); return; }
+        /* HAL_TIM_PWM_Start solo se llama una vez por canal. */
+        if (servo_pwm_started == 0U)
+        {
+            if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3) != HAL_OK)
+            { Reject("PCB ERROR: PWM servo no inicio.\r\n"); return; }
+            servo_pwm_started = 1U;
+        }
         servo_test_angulo = (float)n;
         SERVO_ANG(&SERVO1, servo_test_angulo);
         Msg("PCB SERVO OK\r\n");
