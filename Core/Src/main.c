@@ -39,6 +39,7 @@
 #include "adc_x.h"
 #include "temp_ds18b20.h"
 #include "usv_motores.h"
+#include "pcb_banco.h"
 #include "corriente_lem.h"
 
 #include "stdio.h"
@@ -451,6 +452,9 @@ bomba_test_estado = 0U;
 bomba_test_last_ms = HAL_GetTick();
 
 uartx_write_text(&huart6, "INICIANDO\r\n");
+#if PCB_BANCO_ACTIVO
+PCB_Banco_Iniciar();
+#endif
 //uartRX_it_idle_dma_init(&UARTRX1);
 uartRX_it_idle_dma_init(&GPS_UARTRX);   // USART1 / estacion de tierra
 uartRX_it_idle_dma_init(&GNSS_UARTRX);   // USART2 / GPS L76K
@@ -480,6 +484,9 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+#if PCB_BANCO_ACTIVO
+    PCB_Banco_Tarea();
+#endif
     /*
      * Heartbeat de diagnostico.
      * Si main_alive sigue aumentando, el while(1) continua ejecutandose.
@@ -521,11 +528,13 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
      * La bomba permanece desactivada. Esta etapa habilita unicamente
      * servo de camara y los dos motores de propulsion.
      */
+#if !PCB_BANCO_ACTIVO
     HAL_GPIO_WritePin(
         ACHIQUE_CTRL_GPIO_Port,
         ACHIQUE_CTRL_Pin,
         GPIO_PIN_SET);
     bomba_test_estado = 0U;
+#endif
 
     /*
      * TEMPERATURA DS18B20 NO BLOQUEANTE:
@@ -802,6 +811,24 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         {
             uartx_write_text(&huart6, texto);
         }
+#if PCB_BANCO_ACTIVO
+        len = snprintf(texto, sizeof(texto),
+            ">pcb_armado:%u\r\n>pcb_motor_pulso:%u\r\n"
+            ">pcb_bomba_pulso:%u\r\n>pcb_do_pulso:%u\r\n"
+            ">di1:%u\r\n>di2:%u\r\n>di3:%u\r\n>di4:%u\r\n"
+            ">humedad_do:%u\r\n",
+            (unsigned int)PCB_Banco_Armado(),
+            (unsigned int)PCB_Banco_MotorActivo(),
+            (unsigned int)PCB_Banco_BombaActiva(),
+            (unsigned int)PCB_Banco_SalidaActiva(),
+            (unsigned int)HAL_GPIO_ReadPin(DI1_PA4_GPIO_Port, DI1_PA4_Pin),
+            (unsigned int)HAL_GPIO_ReadPin(DI2_PA5_GPIO_Port, DI2_PA5_Pin),
+            (unsigned int)HAL_GPIO_ReadPin(DI3_PA6_GPIO_Port, DI3_PA6_Pin),
+            (unsigned int)HAL_GPIO_ReadPin(DI4_PA7_GPIO_Port, DI4_PA7_Pin),
+            (unsigned int)HAL_GPIO_ReadPin(HUMIDITY_DO_GPIO_Port, HUMIDITY_DO_Pin));
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+            uartx_write_text(&huart6, texto);
+#endif
     }
 
     /* Envío a Teleplot cada 200 ms */
@@ -897,6 +924,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             failsafe_tierra_activo = 0U;
             pusvu_rx_validas++;
 
+#if !PCB_BANCO_ACTIVO
             /* La camara sigue directamente el comando -90..+90 grados. */
             servo_test_angulo = (float)cmd_camara_rx_deg;
             SERVO_ANG(&SERVO1, servo_test_angulo);
@@ -933,6 +961,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
                     TIM_CHANNEL_4,
                     motor_estribor_pwm_us);
             }
+#endif
         }
 
         /*
@@ -947,6 +976,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
      * Si pasan mas de 500 ms sin una $PUSVU valida, ambos motores vuelven
      * a NEUTRO. El servo conserva la ultima posicion recibida.
      */
+#if !PCB_BANCO_ACTIVO
     if ((enlace_tierra_ok != 0U) &&
         ((uint32_t)(HAL_GetTick() - comando_tierra_ultimo_valido_ms) >
          USV_FAILSAFE_TIERRA_MS))
@@ -973,6 +1003,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         }
     }
 
+#endif
     /*
      * Diagnostico $PUSVU por USART6 limitado a 500 ms.
      * Siempre muestra la ultima orden recibida.
