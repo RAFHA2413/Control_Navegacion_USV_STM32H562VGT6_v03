@@ -26,6 +26,19 @@ float ANG_SERVO;
 int8_t gps_modo,gps_satelites;
 float gps_hor_dilu,gps_altura;
 
+/*
+ * USART2 / L76K: ReceiveToIdle_DMA puede entregar fragmentos que no
+ * coinciden con los limites de una sentencia NMEA. Se conserva el tramo
+ * incompleto entre eventos y solo se decodifican lineas terminadas.
+ * Esta capa no interviene en USART1/XBee ni en el control de actuadores.
+ */
+#define GNSS_NMEA_LINE_SIZE 128U
+static char gnss_nmea_linea[GNSS_NMEA_LINE_SIZE];
+static uint16_t gnss_nmea_longitud = 0U;
+static uint8_t gnss_nmea_en_trama = 0U;
+static const char *gnss_nmea_sentencia_actual = NULL;
+static uint8_t gnss_gga_valida_bloque = 0U;
+
 
 
 /*
@@ -41,15 +54,15 @@ static uint8_t GPS_CopiarSentenciaGNSS(
     const char *end;
     size_t length;
 
-    if (GNSS_UARTRX.trama_rx == NULL)
+    if (gnss_nmea_sentencia_actual == NULL)
     {
         return 0U;
     }
 
-    start = strstr((const char *)GNSS_UARTRX.trama_rx, tipo_gn);
+    start = strstr(gnss_nmea_sentencia_actual, tipo_gn);
     if (start == NULL)
     {
-        start = strstr((const char *)GNSS_UARTRX.trama_rx, tipo_gp);
+        start = strstr(gnss_nmea_sentencia_actual, tipo_gp);
     }
 
     if (start == NULL)
@@ -198,7 +211,7 @@ static void GPS_ActualizarHoraLocal(const char *utc, int8_t *ajuste_dia)
     seg_gps = segundo;
 }
 
-uint8_t GPS_RMC()
+static uint8_t GPS_RMC_Decodificar(void)
 {
     char *campos[16];
     uint8_t cantidad;
@@ -262,7 +275,7 @@ uint8_t GPS_RMC()
     return 1U;
 }
 
-uint8_t GPS_GGA()
+static uint8_t GPS_GGA_Decodificar(void)
 {
     char *campos[16];
     uint8_t cantidad;
@@ -314,6 +327,99 @@ uint8_t GPS_GGA()
     longitud = longitud_nueva;
 
     return 1U;
+}
+
+/*
+ * Contrato con main.c: se llama GPS_RMC() una vez por evento USART2
+ * y, a continuacion, GPS_GGA(). La primera funcion procesa TODO el
+ * bloque recibido; la segunda devuelve si hubo una GGA valida en el
+ * mismo bloque. Los resultados RMC/GGA se mantienen como banderas
+ * por evento y main.c conserva el enclavamiento de gps_*_ok.
+ *
+ * No se usa strstr sobre el buffer DMA de 600 bytes sin terminador.
+ * La linea de maximo 127 caracteres se resynchroniza al siguiente '$'.
+ */
+uint8_t GPS_RMC(void)
+{
+    uint16_t i;
+    uint16_t bytes;
+    uint8_t rmc_valida = 0U;
+
+    gnss_gga_valida_bloque = 0U;
+
+    if (GNSS_UARTRX.trama_rx == NULL)
+    {
+        return 0U;
+    }
+
+    bytes = GNSS_UARTRX.num_datos;
+    if (bytes > GNSS_UARTRX.sizeT)
+    {
+        bytes = GNSS_UARTRX.sizeT;
+    }
+
+    for (i = 0U; i < bytes; ++i)
+    {
+        uint8_t c = GNSS_UARTRX.trama_rx[i];
+
+        if (c == (uint8_t)'$')
+        {
+            gnss_nmea_longitud = 1U;
+            gnss_nmea_linea[0] = '$';
+            gnss_nmea_en_trama = 1U;
+            continue;
+        }
+
+        if (gnss_nmea_en_trama == 0U)
+        {
+            continue;
+        }
+
+        if (c == (uint8_t)'\r' || c == (uint8_t)'\n')
+        {
+            if (gnss_nmea_longitud > 1U)
+            {
+                /* Copiar tambien el fin de linea esperado por el parser. */
+                gnss_nmea_linea[gnss_nmea_longitud++] = '\n';
+                gnss_nmea_linea[gnss_nmea_longitud] = '\0';
+
+                gnss_nmea_sentencia_actual = gnss_nmea_linea;
+
+                if (GPS_RMC_Decodificar() != 0U)
+                {
+                    rmc_valida = 1U;
+                }
+                if (GPS_GGA_Decodificar() != 0U)
+                {
+                    gnss_gga_valida_bloque = 1U;
+                }
+
+                gnss_nmea_sentencia_actual = NULL;
+            }
+
+            gnss_nmea_longitud = 0U;
+            gnss_nmea_en_trama = 0U;
+            continue;
+        }
+
+        if (c < (uint8_t)32U || c > (uint8_t)126U ||
+            (size_t)gnss_nmea_longitud + 2U >= sizeof(gnss_nmea_linea))
+        {
+            /* Mensaje corrupto o demasiado largo: recuperar en '$'. */
+            gnss_nmea_longitud = 0U;
+            gnss_nmea_en_trama = 0U;
+            continue;
+        }
+
+        gnss_nmea_linea[gnss_nmea_longitud++] = (char)c;
+    }
+
+    return rmc_valida;
+}
+
+uint8_t GPS_GGA(void)
+{
+    return gnss_gga_valida_bloque;
 }
 
 uint8_t PUSVU()
