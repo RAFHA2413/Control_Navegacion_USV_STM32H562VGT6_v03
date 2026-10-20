@@ -41,6 +41,80 @@ static uint8_t gnss_gga_valida_bloque = 0U;
 
 
 
+
+/* Validacion NMEA: checksum, hemisferios y rangos de navegacion. */
+#define GNSS_MAX_KNOTS 100.0f
+static int GNSS_Hex(char v)
+{
+    if(v>='0'&&v<='9')return v-'0';
+    if(v>='A'&&v<='F')return v-'A'+10;
+    if(v>='a'&&v<='f')return v-'a'+10;
+    return -1;
+}
+static uint8_t GNSS_Checksum(const char *s)
+{
+    uint8_t x=0U;size_t i,n;int hi,lo;
+    if(s==NULL||s[0]!='$')return 0U;
+    n=strlen(s);if(n<7U||n>=GNSS_NMEA_LINE_SIZE)return 0U;
+    for(i=1U;i<n&&s[i]!='*';++i)
+    {
+        if(s[i]=='\r'||s[i]=='\n')return 0U;
+        x^=(uint8_t)s[i];
+    }
+    if(i+2U>=n||s[i]!='*')return 0U;
+    hi=GNSS_Hex(s[i+1U]);lo=GNSS_Hex(s[i+2U]);
+    if(hi<0||lo<0)return 0U;
+    if(s[i+3U]!='\0'&&s[i+3U]!='\r'&&s[i+3U]!='\n')return 0U;
+    return x==(uint8_t)((hi<<4)|lo);
+}
+static uint8_t GNSS_Decimal(const char *s,uint8_t signo)
+{
+    size_t i=0U;uint8_t d=0U,p=0U;
+    if(!s||!s[0])return 0U;
+    if(signo&&(s[0]=='-'||s[0]=='+'))i++;
+    for(;s[i];++i)
+    {
+        if(s[i]>='0'&&s[i]<='9')d++;
+        else if(s[i]=='.'&&!p)p++;
+        else return 0U;
+    }
+    return d>0U;
+}
+static uint8_t GNSS_Coord(const char *s,const char *h,uint8_t lat)
+{
+    size_t i,n,pos=lat?4U:5U;double v,m;int deg;
+    if(!s||!h||strlen(h)!=1U)return 0U;
+    if(lat?(h[0]!='N'&&h[0]!='S'):(h[0]!='E'&&h[0]!='W'))return 0U;
+    n=strlen(s);if(n<=pos||s[pos]!='.')return 0U;
+    for(i=0U;i<n;++i)
+        if((i==pos&&s[i]!='.')||(i!=pos&&(s[i]<'0'||s[i]>'9')))return 0U;
+    v=atof(s);deg=(int)(v/100.0);m=v-deg*100.0;
+    return m>=0.0&&m<60.0&&deg<=(lat?90:180)&&
+           (deg<(lat?90:180)||m==0.0);
+}
+static uint8_t GNSS_RMC_Valida(char **f,uint8_t n)
+{
+    size_t i;float vel,rumbo;
+    if(n<10U||strcmp(f[2],"A")!=0||
+       !GNSS_Coord(f[3],f[4],1U)||!GNSS_Coord(f[5],f[6],0U)||
+       !GNSS_Decimal(f[7],0U)||(f[8][0]&&!GNSS_Decimal(f[8],0U))||
+       strlen(f[9])!=6U)return 0U;
+    for(i=0U;i<6U;++i)if(f[9][i]<'0'||f[9][i]>'9')return 0U;
+    vel=(float)atof(f[7]);rumbo=f[8][0]?(float)atof(f[8]):0.0f;
+    return vel>=0.0f&&vel<=GNSS_MAX_KNOTS&&rumbo>=0.0f&&rumbo<360.0f;
+}
+static uint8_t GNSS_GGA_Valida(char **f,uint8_t n)
+{
+    int fix,sat;
+    if(n<11U||!GNSS_Decimal(f[6],0U)||!GNSS_Decimal(f[7],0U)||
+       (f[8][0]&&!GNSS_Decimal(f[8],0U)))return 0U;
+    fix=atoi(f[6]);sat=atoi(f[7]);
+    if(fix<0||fix>8||sat<0||sat>64)return 0U;
+    if(fix==0)return 1U;
+    return GNSS_Coord(f[2],f[3],1U)&&GNSS_Coord(f[4],f[5],0U)&&
+           GNSS_Decimal(f[9],1U);
+}
+
 /*
  * Copia una sentencia NMEA completa desde el buffer del L76K.
  * Acepta talker GN (multi-GNSS) y GP (GPS) sin afectar $PUSVU,
@@ -69,6 +143,9 @@ static uint8_t GPS_CopiarSentenciaGNSS(
     {
         return 0U;
     }
+
+    if (start != gnss_nmea_sentencia_actual || !GNSS_Checksum(start))
+        return 0U;
 
     end = strpbrk(start, "\r\n");
     if (end == NULL)
@@ -232,7 +309,7 @@ static uint8_t GPS_RMC_Decodificar(void)
     cantidad = GPS_SepararCampos(GPS_buffer, campos, 16U);
 
     /* RMC: tipo, UTC, estado, lat, N/S, lon, E/W, vel, rumbo, fecha... */
-    if ((cantidad < 10U) || (campos[2][0] != 'A'))
+    if (!GNSS_RMC_Valida(campos, cantidad))
     {
         return 0U;
     }
@@ -293,7 +370,7 @@ static uint8_t GPS_GGA_Decodificar(void)
     cantidad = GPS_SepararCampos(GPS_buffer, campos, 16U);
 
     /* GGA: tipo, UTC, lat, N/S, lon, E/W, calidad, sat, HDOP, altitud... */
-    if (cantidad < 10U)
+    if (!GNSS_GGA_Valida(campos, cantidad))
     {
         return 0U;
     }
