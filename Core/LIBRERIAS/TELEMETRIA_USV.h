@@ -24,7 +24,7 @@
 /* Periodo inicial recomendado para telemetria.
  * Puede cambiarse despues si se requiere otra frecuencia.
  */
-#define TELEMETRIA_USV_PERIODO_MS      500U
+#define TELEMETRIA_USV_PERIODO_MS      400U
 
 typedef struct
 {
