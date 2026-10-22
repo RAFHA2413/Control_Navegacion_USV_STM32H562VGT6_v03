@@ -143,13 +143,18 @@ static uint8_t USV_FormatearDecimalX10(
         magnitud = (int64_t)valor_x10;
     }
 
+    /*
+     * En STM32/newlib-nano, evitar %lld: puede imprimirse literalmente
+     * como "ld". La magnitud procede de int32_t, por lo que tanto
+     * magnitud/10 como magnitud%10 caben en unsigned long (32 bits).
+     */
     resultado = snprintf(
         destino,
         capacidad,
-        "%s%lld.%01lld",
+        "%s%lu.%lu",
         signo,
-        (long long)(magnitud / 10),
-        (long long)(magnitud % 10));
+        (unsigned long)(magnitud / 10),
+        (unsigned long)(magnitud % 10));
 
     if ((resultado < 0) ||
         ((size_t)resultado >= capacidad))
