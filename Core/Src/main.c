@@ -62,7 +62,7 @@
  * La estacion puede ordenar y aplicar el rango completo -100..+100 %.
  * Se mantienen parada de emergencia y failsafe de enlace a 500 ms.
  */
-#define USV_PRUEBA_MOTOR_LIMITE_PCT   10
+#define USV_PRUEBA_MOTOR_LIMITE_PCT   100
 #define USV_FAILSAFE_TIERRA_MS         500U
 
 /* USER CODE END PD */
@@ -149,6 +149,8 @@ int16_t motor_estribor_aplicado_pct = 0;
 uint8_t parada_rx = 0U;
 uint8_t enlace_tierra_ok = 0U;
 uint8_t failsafe_tierra_activo = 1U;
+/* Requiere orden inicial con motores y bomba a cero, tambien tras corte del enlace. */
+uint8_t control_tierra_habilitado = 0U;
 uint32_t comando_tierra_ultimo_valido_ms = 0U;
 uint32_t pusvu_rx_validas = 0U;
 
@@ -528,18 +530,9 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
      * valida y por el failsafe de perdida de enlace definido mas abajo.
      */
 
-    /*
-     * PRUEBA 12.0:
-     * La bomba permanece desactivada. Esta etapa habilita unicamente
-     * servo de camara y los dos motores de propulsion.
-     */
-#if !PCB_BANCO_ACTIVO
-    HAL_GPIO_WritePin(
-        ACHIQUE_CTRL_GPIO_Port,
-        ACHIQUE_CTRL_Pin,
-        GPIO_PIN_SET);
-    bomba_test_estado = 0U;
-#endif
+    /* Bomba PB5: solo se acciona al procesar $PUSVU validas.
+     * No forzar OFF aqui: impediria el funcionamiento remoto.
+     * Arranca apagada y se apaga por parada de emergencia o failsafe. */
 
     /*
      * TEMPERATURA DS18B20 NO BLOQUEANTE:
@@ -689,6 +682,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             ">motor_babor_pwm_us:%u\r\n"
             ">motor_estribor_pwm_us:%u\r\n"
             ">parada_rx:%u\r\n"
+            ">control_tierra_habilitado:%u\r\n"
             ">enlace_tierra_ok:%u\r\n"
             ">failsafe_tierra:%u\r\n"
             ">pusvu_rx_validas:%lu\r\n"
@@ -708,6 +702,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned int)motor_babor_pwm_us,
             (unsigned int)motor_estribor_pwm_us,
             (unsigned int)parada_rx,
+            (unsigned int)control_tierra_habilitado,
             (unsigned int)enlace_tierra_ok,
             (unsigned int)failsafe_tierra_activo,
             (unsigned long)pusvu_rx_validas,
@@ -930,11 +925,28 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             pusvu_rx_validas++;
 
 #if !PCB_BANCO_ACTIVO
+            /* Evita arranque intempestivo: primero recibir neutro
+               (ambos motores=0, bomba=0) con parada desactivada. */
+            if (parada_rx != 0U)
+            {
+                control_tierra_habilitado = 0U;
+            }
+            else if ((control_tierra_habilitado == 0U) &&
+                     (cmd_babor_rx_pct == 0) &&
+                     (cmd_estribor_rx_pct == 0) &&
+                     (comando_tierra.bomba == 0U))
+            {
+                control_tierra_habilitado = 1U;
+            }
+#endif
+
+#if !PCB_BANCO_ACTIVO
             /* La camara sigue directamente el comando -90..+90 grados. */
             servo_test_angulo = (float)cmd_camara_rx_deg;
             SERVO_ANG(&SERVO1, servo_test_angulo);
 
-            if ((parada_rx != 0U) || (motores_pwm_activos == 0U))
+            if ((parada_rx != 0U) || (control_tierra_habilitado == 0U) ||
+                (motores_pwm_activos == 0U))
             {
                 motor_babor_aplicado_pct = 0;
                 motor_estribor_aplicado_pct = 0;
@@ -966,6 +978,15 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
                     TIM_CHANNEL_4,
                     motor_estribor_pwm_us);
             }
+
+            /* Bomba: PB5 open-drain, activa en LOW, OFF en SET.
+               Enlace valido + sin parada + neutro inicial confirmado. */
+            bomba_test_estado =
+                ((parada_rx == 0U) && (control_tierra_habilitado != 0U) &&
+                 (comando_tierra.bomba != 0U)) ? 1U : 0U;
+            HAL_GPIO_WritePin(
+                ACHIQUE_CTRL_GPIO_Port, ACHIQUE_CTRL_Pin,
+                (bomba_test_estado != 0U) ? GPIO_PIN_RESET : GPIO_PIN_SET);
 #endif
         }
 
@@ -988,6 +1009,12 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     {
         enlace_tierra_ok = 0U;
         failsafe_tierra_activo = 1U;
+        control_tierra_habilitado = 0U;
+
+        /* Perdida del enlace: apagar el rele de la bomba. */
+        HAL_GPIO_WritePin(
+            ACHIQUE_CTRL_GPIO_Port, ACHIQUE_CTRL_Pin, GPIO_PIN_SET);
+        bomba_test_estado = 0U;
 
         motor_babor_aplicado_pct = 0;
         motor_estribor_aplicado_pct = 0;
@@ -1156,7 +1183,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         }
     }
 
-    /* Envia $PUSVD hacia tierra cada 500 ms. */
+    /* Envia $PUSVD con periodo definido en TELEMETRIA_USV.h (400 ms). */
     TELEMETRIA_USV_Tarea(&TELEMETRIA1);
 
     /* USER CODE END WHILE */
