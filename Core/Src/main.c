@@ -796,16 +796,24 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             uartx_write_text(&huart6, texto);
         }
 
-        /* Bloque 6: voltaje de bateria por PC1 / ADC1_INP11. */
+        /* Bloque 6: bateria y contadores de transmision XBee (USART1).
+         * Los contadores se observan por USART6/Teleplot, sin alterar
+         * el protocolo $PUSVD ni las ordenes de la estacion de tierra. */
         len = snprintf(
             texto,
             sizeof(texto),
             ">bateria_adc:%u\r\n"
             ">bateria_adc_v:%.3f\r\n"
-            ">bateria_voltaje_v:%.2f\r\n",
+            ">bateria_voltaje_v:%.2f\r\n"
+            ">tramas_enviadas:%lu\r\n"
+            ">errores_construccion:%lu\r\n"
+            ">errores_uart:%lu\r\n",
             (unsigned int)bateria_adc_raw,
             bateria_adc_v,
-            bateria_voltaje_v);
+            bateria_voltaje_v,
+            (unsigned long)TELEMETRIA1.tramas_enviadas,
+            (unsigned long)TELEMETRIA1.errores_construccion,
+            (unsigned long)TELEMETRIA1.errores_uart);
 
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
