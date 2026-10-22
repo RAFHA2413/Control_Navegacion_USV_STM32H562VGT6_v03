@@ -62,7 +62,7 @@
  * La estacion puede ordenar y aplicar el rango completo -100..+100 %.
  * Se mantienen parada de emergencia y failsafe de enlace a 500 ms.
  */
-#define USV_PRUEBA_MOTOR_LIMITE_PCT   100
+#define USV_PRUEBA_MOTOR_LIMITE_PCT   10
 #define USV_FAILSAFE_TIERRA_MS         500U
 
 /* USER CODE END PD */
