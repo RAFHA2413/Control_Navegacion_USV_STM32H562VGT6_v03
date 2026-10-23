@@ -1,0 +1,48 @@
+name: Verificar Excel P20-P29
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Evidencias_Experimentales/P20_P29/24_USV_P20_P29_.xlsx'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener repositorio
+        uses: actions/checkout@v4
+
+      - name: Verificar integridad y hojas originales
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import zipfile
+          import xml.etree.ElementTree as ET
+
+          archivo = Path("Evidencias_Experimentales/P20_P29/24_USV_P20_P29_.xlsx")
+          esperado = "084a40f7020a8e8a1c7eb6d41e2dc815d8c9b08d050541772f4efa9f78bdcbcb"
+          if not archivo.is_file():
+              raise SystemExit("No se encuentra el archivo Excel P20-P29.")
+          contenido = archivo.read_bytes()
+          obtenido = hashlib.sha256(contenido).hexdigest()
+          if obtenido != esperado:
+              raise SystemExit(f"Error de integridad: SHA-256 {obtenido}; se esperaba {esperado}.")
+          with zipfile.ZipFile(archivo) as z:
+              error = z.testzip()
+              if error:
+                  raise SystemExit(f"Error en componente del archivo XLSX: {error}")
+              ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+              libro = ET.fromstring(z.read("xl/workbook.xml"))
+              hojas = [s.attrib["name"] for s in libro.findall(f"{ns}sheets/{ns}sheet")]
+          esperadas = ["RESUMEN","P20_Consumo","P21_Alimentacion","P22_Temperaturas","P23_Tiempos","P24_Concurrencia","P25_Formato","P26_CRC","P27_Clasificacion","P28_Paquetes","P29_Enlace"]
+          if hojas != esperadas:
+              raise SystemExit("Los nombres o el orden de las hojas no coinciden con el archivo original.")
+          print(f"Archivo original confirmado: {len(contenido)} bytes; 11 hojas; SHA-256 {obtenido}")
+          PY
