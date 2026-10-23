@@ -1,0 +1,83 @@
+name: Importar evidencias USV
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Evidencias_Experimentales/Evidencias_Experimentales_USV_Organizadas.zip'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  importar:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener repositorio
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verificar integridad y extraer evidencias
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import csv
+          import hashlib
+          import io
+          import stat
+          import zipfile
+
+          paquete = Path("Evidencias_Experimentales/Evidencias_Experimentales_USV_Organizadas.zip")
+          if not paquete.is_file():
+              raise SystemExit("No se encontró el ZIP de evidencias en la carpeta prevista.")
+          indice = "Evidencias_Experimentales/INDICE_EVIDENCIAS.csv"
+          with zipfile.ZipFile(paquete) as z:
+              archivos = [i for i in z.infolist() if not i.is_dir()]
+              nombres = [i.filename for i in archivos]
+              if len(nombres) != len(set(nombres)):
+                  raise SystemExit("El ZIP tiene rutas duplicadas.")
+              for info in z.infolist():
+                  ruta = PurePosixPath(info.filename)
+                  if (ruta.is_absolute() or not ruta.parts or
+                      ruta.parts[0] != "Evidencias_Experimentales" or
+                      ".." in ruta.parts or
+                      stat.S_IFMT(info.external_attr >> 16) == stat.S_IFLNK):
+                      raise SystemExit(f"Ruta no permitida: {info.filename}")
+              if len(archivos) != 41 or indice not in nombres:
+                  raise SystemExit("El inventario del paquete no coincide con el esperado (39 registros y 2 documentos).")
+              filas = list(csv.DictReader(io.StringIO(z.read(indice).decode("utf-8-sig"))))
+              if len(filas) != 39:
+                  raise SystemExit("El índice debe contener exactamente 39 evidencias originales.")
+              revisados = set()
+              for fila in filas:
+                  ruta = fila["ruta_relativa_en_paquete"]
+                  if ruta not in nombres or ruta in revisados:
+                      raise SystemExit(f"Archivo ausente o duplicado: {ruta}")
+                  datos = z.read(ruta)
+                  if len(datos) != int(fila["bytes"]):
+                      raise SystemExit(f"Tamaño incorrecto: {ruta}")
+                  if hashlib.sha256(datos).hexdigest().lower() != fila["sha256"].lower():
+                      raise SystemExit(f"SHA-256 no coincide: {ruta}")
+                  revisados.add(ruta)
+              if set(nombres) != revisados | {indice, "Evidencias_Experimentales/README.md"}:
+                  raise SystemExit("Hay entradas extra no documentadas.")
+              z.extractall(".")
+              print(f"Verificadas y extraídas {len(revisados)} evidencias originales.")
+          PY
+
+      - name: Confirmar evidencias y retirar ZIP temporal
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -- Evidencias_Experimentales/Evidencias_Experimentales_USV_Organizadas.zip
+          git add -A -- Evidencias_Experimentales/
+          if ! git diff --cached --quiet; then
+            git commit -m "Incorporar 39 evidencias originales verificadas de la PCB USV"
+            git push origin HEAD:main
+          fi
