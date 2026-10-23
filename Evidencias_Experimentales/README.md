@@ -1,26 +1,38 @@
-# Evidencias experimentales de la PCB USV
+# Evidencias experimentales — PCB de control de navegación USV
 
-Este directorio está destinado a conservar las **evidencias originales de las pruebas funcionales de la tarjeta de control de navegación USV**, de forma separada del código fuente del microcontrolador.
+Este directorio reúne **copias íntegras** de los archivos entregados en `PRUEBAS DE LA PCB.zip`. Se conserva el nombre y el contenido original de cada archivo; únicamente cambia su ubicación.
 
-## Inventario preparado (22 de octubre de 2026)
+## Criterio de organización
 
-- 39 archivos originales: registros CSV, figuras, un archivo XLSX y paquetes ZIP complementarios.
-- 12 grupos organizados por la nomenclatura de ensayo (P03, P04, P05, P06, P07, P08, P12, P13/P14, P16 y P17, incluidos registros adicionales).
-- El paquete listo para incorporar se denomina `Evidencias_Experimentales_USV_Organizadas.zip`.
-- En el paquete se incluyen `INDICE_EVIDENCIAS.csv` (rutas y huellas SHA-256) y un README detallado.
+Se agrupan los registros por código P01–P19 cuando aparece en el nombre original y, dentro de cada prueba, por formato. Los registros adicionales de inclinación y propulsión se asignaron **provisionalmente** por el nombre del archivo. Esta clasificación **no implica aprobación, conformidad ni ejecución completa** de un protocolo.
 
-**Estado actual:** esta página prepara el destino; los registros binarios se incorporarán cuando se suba el ZIP. No se debe interpretar la presencia de este README como publicación completa de las evidencias.
+| Grupo | Archivos |
+|---|---:|
+| `P03` | 3 |
+| `P04` | 3 |
+| `P04_IMU_Adicional` | 1 |
+| `P05` | 13 |
+| `P06` | 4 |
+| `P07` | 2 |
+| `P08` | 3 |
+| `P12` | 2 |
+| `P13_P14_Propulsion` | 2 |
+| `P13_P14_Propulsion_Adicional` | 1 |
+| `P16` | 3 |
+| `P17` | 2 |
 
-## Importación automática de un solo ZIP
+## Integridad y trazabilidad
 
-1. Descargue el paquete `Evidencias_Experimentales_USV_Organizadas.zip` preparado junto con el trabajo.
-2. En GitHub, abra esta carpeta, seleccione **Add file → Upload files** y cargue ese único ZIP aquí mismo, sin cambiarle el nombre.
-3. Confirme la carga directamente en la rama `main`.
-4. El flujo `Importar evidencias USV` comprobará que las entradas estén bajo esta carpeta, extraerá los archivos y comparará su SHA-256 con el índice. Si todo coincide, creará una confirmación con las evidencias organizadas y eliminará el ZIP temporal.
-5. Verifique el resultado en la pestaña **Actions**. Si el flujo está deshabilitado o no tiene permiso de escritura, la carga permanecerá pendiente hasta que se resuelva.
+`INDICE_EVIDENCIAS.csv` contiene ruta, tamaño y SHA-256 de cada archivo. Los `.zip` internos se mantienen sin descomprimir para preservar la evidencia de origen y sus propios archivos auxiliares. Se conservan los archivos redundantes de las comparativas GNSS por pertenecer a paquetes originales.
 
-## Integridad y alcance científico
+## Interpretación de los datos
 
-Los archivos originales no deben modificarse. La clasificación por código de prueba es organizativa y no equivale a certificar una prueba como exitosa. Las conclusiones científicas deben seguir sustentadas en el análisis de cada archivo, el artículo y los anexos.
+Estos ficheros son evidencias brutas o de análisis, no certificados de cumplimiento. Cualquier conclusión científica debe basarse en un análisis independiente de los registros y en los criterios definidos en el artículo y sus anexos. La existencia de un archivo con código de prueba no acredita por sí sola su resultado.
 
-**Repositorio público:** los registros GNSS de P05 contienen o pueden contener fechas y coordenadas reales. El responsable del repositorio autorizó su publicación y debe verificar el tratamiento institucional de los datos operacionales.
+## Advertencia de publicación
+
+**Revisar antes de enviar a un repositorio público.** Los archivos de P05 y sus ZIP auxiliares incluyen o pueden incluir latitudes, longitudes, trayectorias, fechas y horarios. Verificar autorizaciones institucionales y posibles datos sensibles de cualquier otro archivo. No publicar rutas operacionales no autorizadas.
+
+## Fuente
+
+Archivo suministrado por los autores: `PRUEBAS DE LA PCB.zip`. Inventario preparado el 22 de octubre de 2026.
