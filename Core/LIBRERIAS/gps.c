@@ -461,6 +461,8 @@ void GPS_Interrupt(UART_HandleTypeDef *huart, uint16_t sizex)
         (huart->Instance == GPS_UARTRX.usart_instance))
     {
         HAL_UART_DMAStop(GPS_UARTRX.huart);
+        if (GPS_UARTRX.trama_rx != NULL && sizex <= GPS_UARTRX.sizeT)
+            GPS_UARTRX.trama_rx[sizex] = 0U;
         GPS_UARTRX.num_datos = sizex;
         GPS_UARTRX.flag_rx = 1;
     }
@@ -470,6 +472,8 @@ void GPS_Interrupt(UART_HandleTypeDef *huart, uint16_t sizex)
         (huart->Instance == GNSS_UARTRX.usart_instance))
     {
         HAL_UART_DMAStop(GNSS_UARTRX.huart);
+        if (GNSS_UARTRX.trama_rx != NULL && sizex <= GNSS_UARTRX.sizeT)
+            GNSS_UARTRX.trama_rx[sizex] = 0U;
         GNSS_UARTRX.num_datos = sizex;
         GNSS_UARTRX.flag_rx = 1;
     }

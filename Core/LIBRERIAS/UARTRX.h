@@ -19,9 +19,9 @@ typedef struct {
     volatile uint32_t *SR;
     volatile uint32_t *RDR;
     volatile uint32_t *ICR;
-    char flag_rx;
+    volatile uint8_t flag_rx;
 	uint16_t dato;
-	uint16_t num_datos;
+	volatile uint16_t num_datos;
 	uint8_t *trama_rx;
 } UARTRXS;
 

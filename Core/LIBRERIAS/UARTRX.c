@@ -27,19 +27,30 @@ UARTRXS GNSS_UARTRX = {&huart2,USART2,600}; // GPS L76K / NMEA
 UARTRXS UARTRX1 = {&huart6,USART6,600}; //en que puerto y tamaño sizeT es el tamaño del buffer de recepcion
 
 
-//*********************************************************
-//se llama solo una vez para  crear el buffer trama rx del usart deseado
+/* Reservar buffers estaticos para evitar malloc y falta de memoria del heap
+ * durante la inicializacion de ambos RX DMA. Se reserva +1 byte para NUL. */
+#define USV_RX_DMA_MAX 600U
+static uint8_t xbee_rx_dma_mem[USV_RX_DMA_MAX + 1U];
+static uint8_t gnss_rx_dma_mem[USV_RX_DMA_MAX + 1U];
+static uint8_t debug_rx_dma_mem[USV_RX_DMA_MAX + 1U];
+
+// Se llama una vez por UART RX; no iniciar UART6 por DMA durante PCB_BANCO.
 void uartRX_it_idle_dma_init(UARTRXS *SERIAL)
 {
-// Asigna memoria
-SERIAL->trama_rx = malloc(SERIAL->sizeT);  //reserva memoria
- memset(SERIAL->trama_rx,0,SERIAL->sizeT-1);//limpia el  buffer
- SERIAL->flag_rx=0;// LIMPIA LA BANDERA
-__HAL_UART_CLEAR_OREFLAG(SERIAL->huart); // Limpia Overrun Error
-__HAL_UART_FLUSH_DRREGISTER(SERIAL->huart); // Limpia buffer de entrada
- HAL_UARTEx_ReceiveToIdle_DMA(SERIAL->huart, (uint8_t*)SERIAL->trama_rx, SERIAL->sizeT);//inica la recepcion por idle
-__HAL_DMA_DISABLE_IT(SERIAL->huart->hdmarx, DMA_IT_HT); // deshabilita HT, deja activo IDLE + buffer lleno
+    if ((SERIAL == NULL) || (SERIAL->huart == NULL) ||
+        (SERIAL->sizeT > USV_RX_DMA_MAX)) return;
+    if (SERIAL == &GPS_UARTRX) SERIAL->trama_rx = xbee_rx_dma_mem;
+    else if (SERIAL == &GNSS_UARTRX) SERIAL->trama_rx = gnss_rx_dma_mem;
+    else if (SERIAL == &UARTRX1) SERIAL->trama_rx = debug_rx_dma_mem;
+    else return;
 
+    memset(SERIAL->trama_rx, 0, (size_t)SERIAL->sizeT + 1U);
+    SERIAL->flag_rx = 0U;
+    __HAL_UART_CLEAR_OREFLAG(SERIAL->huart);
+    __HAL_UART_FLUSH_DRREGISTER(SERIAL->huart);
+    if (HAL_UARTEx_ReceiveToIdle_DMA(
+            SERIAL->huart, SERIAL->trama_rx, SERIAL->sizeT) == HAL_OK)
+        __HAL_DMA_DISABLE_IT(SERIAL->huart->hdmarx, DMA_IT_HT);
 }
 
 
@@ -48,7 +59,8 @@ __HAL_DMA_DISABLE_IT(SERIAL->huart->hdmarx, DMA_IT_HT); // deshabilita HT, deja 
 void  uartRX_DMA_Re_init(UARTRXS *SERIAL)
 {
 
-	memset(SERIAL->trama_rx,0,SERIAL->sizeT-1);//limpia el  buffer
+	if (SERIAL->trama_rx == NULL) return;
+    memset(SERIAL->trama_rx, 0, (size_t)SERIAL->sizeT + 1U);
 
 	SERIAL->flag_rx=0;// LIMPIA LA BANDERA
 __HAL_UART_CLEAR_OREFLAG(SERIAL->huart); // Limpia Overrun Error

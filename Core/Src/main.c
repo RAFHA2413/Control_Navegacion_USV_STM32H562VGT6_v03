@@ -64,6 +64,8 @@
  */
 #define USV_PRUEBA_MOTOR_LIMITE_PCT   100
 #define USV_FAILSAFE_TIERRA_MS         500U
+/* Tiempo inicial, ajustar con mediciones y perfiles reales XCTU. */
+#define XBEE_REPLY_GUARD_MS             60U
 
 /* USER CODE END PD */
 
@@ -139,6 +141,12 @@ float bateria_voltaje_v = 0.0f;
 /* Ultima trama $PUSVU decodificada desde USART1 / estacion de tierra. */
 USV_Comando comando_tierra;
 uint8_t comando_tierra_valido = 0U;
+static uint8_t xbee_fragmento_rx[600U];
+static char xbee_linea[USV_TRAMA_MAXIMA];
+static uint16_t xbee_linea_n = 0U;
+static uint32_t xbee_tramas_descartadas = 0U;
+static uint8_t xbee_reply_pendiente = 0U;
+static uint32_t xbee_reply_deadline_ms = 0U;
 
 /* Estado de control remoto para la prueba 12.0. */
 int16_t cmd_babor_rx_pct = 0;
@@ -200,6 +208,49 @@ void procesa_rx(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/* DMA+IDLE no representa trama completa: acumular fragmentos hasta CRLF. */
+static uint8_t XBee_ExtraerComandos(
+        const uint8_t *bytes, uint16_t cantidad,
+        USV_Comando *comando, uint8_t *linea_completa)
+{
+    uint8_t correcto = 0U;
+    uint16_t i;
+    if ((bytes == NULL) || (comando == NULL) || (linea_completa == NULL))
+        return 0U;
+    *linea_completa = 0U;
+    for (i = 0U; i < cantidad; ++i)
+    {
+        uint8_t c = bytes[i];
+        if (c == (uint8_t)'$')
+            xbee_linea_n = 0U;
+        else if (xbee_linea_n == 0U)
+            continue;
+        if (xbee_linea_n >= USV_TRAMA_MAXIMA - 1U)
+        {
+            ++xbee_tramas_descartadas;
+            xbee_linea_n = 0U;
+            continue;
+        }
+        xbee_linea[xbee_linea_n++] = (char)c;
+        if (c == (uint8_t)'\n')
+        {
+            USV_Comando actual;
+            xbee_linea[xbee_linea_n] = '\0';
+            *linea_completa = 1U;
+            if (USV_LeerComando(xbee_linea, &actual) != 0U)
+            {
+                *comando = actual;
+                correcto = 1U;
+            }
+            else
+                ++xbee_tramas_descartadas;
+            xbee_linea_n = 0U;
+        }
+    }
+    return correcto;
+}
+
+
 
 /*
  * Convierte los angulos reales del BNO085 al formato exigido por $PUSVD.
@@ -899,13 +950,24 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         led_rx_ultimo_evento_ms = ahora_rx;
         led_rx_activo = 1U;
 
-        comando_tierra_valido =
-            USV_LeerComando(
-                (const char *)GPS_UARTRX.trama_rx,
-                &comando_tierra);
-
+        uint16_t n_xbee = GPS_UARTRX.num_datos;
+        uint8_t copia = (uint8_t)((GPS_UARTRX.trama_rx != NULL) &&
+                                  (n_xbee > 0U) &&
+                                  (n_xbee <= sizeof(xbee_fragmento_rx)));
+        uint8_t linea_completa = 0U;
+        if (copia != 0U)
+            memcpy(xbee_fragmento_rx, GPS_UARTRX.trama_rx, n_xbee);
+        else
+            ++xbee_tramas_descartadas;
+        /* RX queda rearmado antes de ejecutar ordenes o responder. */
+        uartRX_DMA_Re_init(&GPS_UARTRX);
+        comando_tierra_valido = copia
+            ? XBee_ExtraerComandos(xbee_fragmento_rx, n_xbee,
+                                    &comando_tierra, &linea_completa)
+            : 0U;
         pusvu_diag_ultimo_valido = comando_tierra_valido;
-        pusvu_diag_pendiente = 1U;
+        if (linea_completa != 0U)
+            pusvu_diag_pendiente = 1U;
 
         if (comando_tierra_valido != 0U)
         {
@@ -928,6 +990,9 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             enlace_tierra_ok = 1U;
             failsafe_tierra_activo = 0U;
             pusvu_rx_validas++;
+            /* Responder una sola vez por lote de comandos completos validos. */
+            xbee_reply_pendiente = 1U;
+            xbee_reply_deadline_ms = ahora_rx + XBEE_REPLY_GUARD_MS;
 
 #if !PCB_BANCO_ACTIVO
             /* La camara sigue directamente el comando -90..+90 grados. */
@@ -969,11 +1034,6 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
 #endif
         }
 
-        /*
-         * Prioridad: reactivar USART1 inmediatamente.
-         * La impresion del diagnostico se realiza despues.
-         */
-        uartRX_DMA_Re_init(&GPS_UARTRX);
     }
 
     /*
@@ -1156,8 +1216,14 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         }
     }
 
-    /* Envia $PUSVD hacia tierra cada 500 ms. */
-    TELEMETRIA_USV_Tarea(&TELEMETRIA1);
+    /* Half-duplex por RF: solo responder a un $PUSVU valido.
+     * UART1 permanece con TX/RX separados: no usar HAL_HalfDuplex_Init. */
+    if ((xbee_reply_pendiente != 0U) &&
+        ((int32_t)(HAL_GetTick() - xbee_reply_deadline_ms) >= 0))
+    {
+        xbee_reply_pendiente = 0U;
+        (void)TELEMETRIA_USV_Enviar(&TELEMETRIA1);
+    }
 
     /* USER CODE END WHILE */
 
