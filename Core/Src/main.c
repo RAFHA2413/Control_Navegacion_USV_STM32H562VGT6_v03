@@ -117,6 +117,7 @@ float temperatura_c = -100.0f;
 uint8_t gps_rmc_ok = 0U;
 uint8_t gps_gga_ok = 0U;
 uint32_t gnss_rx_eventos = 0U;
+uint32_t gnss_ultimo_fix_ms = 0U;
 uint32_t servo_test_last_ms = 0U;
 uint8_t servo_test_estado = 0U;
 float servo_test_angulo = 0.0f;
@@ -251,6 +252,71 @@ static uint8_t XBee_ExtraerComandos(
 }
 
 
+
+/* Convierte coordenadas decimales entregadas por gps.c al formato NMEA
+ * ddmm.mmmm / dddmm.mmmm esperado por Trama Version 3. */
+static void USV_GNSS_FormatearCoord(double decimal, uint8_t lon,
+                                   char *destino, size_t capacidad)
+{
+    double abs_coord = (decimal < 0.0) ? -decimal : decimal;
+    unsigned long grados = (unsigned long)abs_coord;
+    double minutos = (abs_coord - (double)grados) * 60.0;
+    if (minutos >= 59.99995)
+    {
+        ++grados;
+        minutos = 0.0;
+    }
+    if (lon != 0U)
+        (void)snprintf(destino, capacidad, "%03lu%07.4f", grados, minutos);
+    else
+        (void)snprintf(destino, capacidad, "%02lu%07.4f", grados, minutos);
+}
+
+/* Sincroniza la estructura de telemetria con las mediciones GNSS decodificadas.
+ * NO cambia la velocidad y el rumbo si aun no hay solucion valida. */
+static void USV_ActualizarTelemetriaGNSS(uint8_t fix_valido)
+{
+    char utc[USV_TAMANO_UTC];
+    char lat_nmea[USV_TAMANO_COORDENADA];
+    char lon_nmea[USV_TAMANO_COORDENADA];
+    uint16_t hdop10, vel10, rumbo10;
+    int32_t alt10;
+    uint8_t calidad, sats;
+    uint8_t hh = (uint8_t)(((int16_t)hor_gps + 5 + 24) % 24);
+
+    if (fix_valido == 0U)
+    {
+        TELEMETRIA1.datos.calidad_gps = 0U;
+        TELEMETRIA1.datos.satelites = 0U;
+        return;
+    }
+    /* gps.c ofrece hora LOCAL de Colombia; convertir de nuevo a UTC. */
+    (void)snprintf(utc, sizeof(utc), "%02u%02u%02u.00",
+                   (unsigned)hh, (unsigned)min_gps, (unsigned)seg_gps);
+    USV_GNSS_FormatearCoord(latitud, 0U, lat_nmea, sizeof(lat_nmea));
+    USV_GNSS_FormatearCoord(longitud, 1U, lon_nmea, sizeof(lon_nmea));
+    calidad = (uint8_t)((gps_modo >= 1 && gps_modo <= 8) ?
+                         gps_modo : 1);
+    sats = (uint8_t)((gps_satelites >= 0 && gps_satelites <= 24) ?
+                     gps_satelites : 0);
+    hdop10 = (uint16_t)((gps_hor_dilu >= 0.5f &&
+                         gps_hor_dilu <= 50.0f) ?
+                        (gps_hor_dilu * 10.0f + 0.5f) : 500.0f);
+    alt10 = (int32_t)((gps_altura >= -10.0f &&
+                       gps_altura <= 9999.0f) ?
+                       (gps_altura * 10.0f) : 0.0f);
+    /* La Trama V3 etiqueta velocidad con N: transmitir NUDOS, no km/h. */
+    vel10 = (uint16_t)((gps_vel_nudos >= 0.0f &&
+                        gps_vel_nudos <= 30.0f) ?
+                        (gps_vel_nudos * 10.0f + 0.5f) : 0.0f);
+    rumbo10 = (uint16_t)((gps_rumbo >= 0.0f &&
+                          gps_rumbo < 360.0f) ?
+                         (gps_rumbo * 10.0f + 0.5f) : 0.0f);
+    TELEMETRIA_USV_GPS(&TELEMETRIA1, utc, lat_nmea,
+                       (latitud < 0.0) ? 'S' : 'N',
+                       lon_nmea, (longitud < 0.0) ? 'W' : 'E',
+                       calidad, sats, hdop10, alt10, vel10, rumbo10);
+}
 
 /*
  * Convierte los angulos reales del BNO085 al formato exigido por $PUSVD.
@@ -579,18 +645,8 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
      * valida y por el failsafe de perdida de enlace definido mas abajo.
      */
 
-    /*
-     * PRUEBA 12.0:
-     * La bomba permanece desactivada. Esta etapa habilita unicamente
-     * servo de camara y los dos motores de propulsion.
-     */
-#if !PCB_BANCO_ACTIVO
-    HAL_GPIO_WritePin(
-        ACHIQUE_CTRL_GPIO_Port,
-        ACHIQUE_CTRL_Pin,
-        GPIO_PIN_SET);
-    bomba_test_estado = 0U;
-#endif
+    /* La bomba arranca desenergizada y solo cambia por una orden
+     * PUSVU valida o cuando el failsafe corta el enlace. */
 
     /*
      * TEMPERATURA DS18B20 NO BLOQUEANTE:
@@ -624,6 +680,14 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         {
             temperatura_c = TEMPE_ReadResult();
             temperatura_conversion_activa = 0U;
+            /* No inventar temperatura cuando el DS18B20 no responde.
+             * La version 3 admite -10.0..85.0 C. */
+            if ((temperatura_c >= -10.0f) && (temperatura_c <= 85.0f))
+            {
+                TELEMETRIA1.datos.temperatura_x10 =
+                    (int16_t)((temperatura_c * 10.0f) +
+                        ((temperatura_c >= 0.0f) ? 0.5f : -0.5f));
+            }
         }
     }
 
@@ -1031,6 +1095,14 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
                     TIM_CHANNEL_4,
                     motor_estribor_pwm_us);
             }
+
+            /* Relé de achique PB5 es activo en LOW; parada=1 siempre OFF.
+             * En el arranque permanece OFF hasta la primera orden valida. */
+            bomba_test_estado =
+                (uint8_t)((comando_tierra.bomba != 0U) &&
+                          (parada_rx == 0U));
+            HAL_GPIO_WritePin(ACHIQUE_CTRL_GPIO_Port, ACHIQUE_CTRL_Pin,
+                (bomba_test_estado != 0U) ? GPIO_PIN_RESET : GPIO_PIN_SET);
 #endif
         }
 
@@ -1048,6 +1120,10 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     {
         enlace_tierra_ok = 0U;
         failsafe_tierra_activo = 1U;
+        /* Parada de bomba ante perdida de enlace (rele activo en LOW). */
+        bomba_test_estado = 0U;
+        HAL_GPIO_WritePin(
+            ACHIQUE_CTRL_GPIO_Port, ACHIQUE_CTRL_Pin, GPIO_PIN_SET);
 
         motor_babor_aplicado_pct = 0;
         motor_estribor_aplicado_pct = 0;
@@ -1184,9 +1260,17 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         {
             gps_gga_ok = 1U;
         }
-
+        if ((rmc_ok != 0U) || (gga_ok != 0U))
+        {
+            gnss_ultimo_fix_ms = HAL_GetTick();
+            USV_ActualizarTelemetriaGNSS(1U);
+        }
         uartRX_DMA_Re_init(&GNSS_UARTRX);
     }
+
+    /* Un fix antiguo no puede seguir declarándose válido indefinidamente. */
+    if ((uint32_t)(HAL_GetTick() - gnss_ultimo_fix_ms) > 3000U)
+        TELEMETRIA1.datos.calidad_gps = 0U;
 
     /*
      * PRUEBA SOLICITADA POR EL PROFESOR:
