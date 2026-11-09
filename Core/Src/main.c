@@ -931,6 +931,24 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         {
             uartx_write_text(&huart6, texto);
         }
+
+        /* 14.1: indicadores locales de envio PUSVD por USART1/XBee.
+         * tramas_enviadas solo confirma HAL_OK en UART, no recepcion RF. */
+        len = snprintf(
+            texto,
+            sizeof(texto),
+            ">pusvd_tx_uart_ok:%lu\r\n"
+            ">pusvd_tx_uart_err:%lu\r\n"
+            ">pusvd_tx_formato_err:%lu\r\n"
+            ">pusvd_tx_ultimo_bytes:%u\r\n",
+            (unsigned long)TELEMETRIA1.tramas_enviadas,
+            (unsigned long)TELEMETRIA1.errores_uart,
+            (unsigned long)TELEMETRIA1.errores_construccion,
+            (unsigned int)TELEMETRIA1.longitud_tx);
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
 #if PCB_BANCO_ACTIVO
         len = snprintf(texto, sizeof(texto),
             ">pcb_armado:%u\r\n>pcb_motor_pulso:%u\r\n"

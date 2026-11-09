@@ -146,10 +146,10 @@ static uint8_t USV_FormatearDecimalX10(
     resultado = snprintf(
         destino,
         capacidad,
-        "%s%lld.%01lld",
+        "%s%lu.%01lu",
         signo,
-        (long long)(magnitud / 10),
-        (long long)(magnitud % 10));
+        (unsigned long)(magnitud / 10),
+        (unsigned long)(magnitud % 10));
 
     if ((resultado < 0) ||
         ((size_t)resultado >= capacidad))
