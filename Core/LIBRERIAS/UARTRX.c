@@ -55,18 +55,28 @@ void uartRX_it_idle_dma_init(UARTRXS *SERIAL)
 
 
 
-//si ya se creo el buffer trama rx  usar solo este
-void  uartRX_DMA_Re_init(UARTRXS *SERIAL)
+/* Comprueba HAL_OK; si falla, main puede intentar recuperar USART1. */
+HAL_StatusTypeDef uartRX_DMA_Re_init(UARTRXS *SERIAL)
 {
-
-	if (SERIAL->trama_rx == NULL) return;
+    HAL_StatusTypeDef estado;
+    if ((SERIAL == NULL) || (SERIAL->huart == NULL) ||
+        (SERIAL->huart->hdmarx == NULL) || (SERIAL->trama_rx == NULL) ||
+        (SERIAL->sizeT == 0U) || (SERIAL->sizeT > USV_RX_DMA_MAX))
+    {
+        return HAL_ERROR;
+    }
+    SERIAL->flag_rx = 0U;
+    SERIAL->num_datos = 0U;
     memset(SERIAL->trama_rx, 0, (size_t)SERIAL->sizeT + 1U);
-
-	SERIAL->flag_rx=0;// LIMPIA LA BANDERA
-__HAL_UART_CLEAR_OREFLAG(SERIAL->huart); // Limpia Overrun Error
-__HAL_UART_FLUSH_DRREGISTER(SERIAL->huart); // Limpia buffer de entrada
- HAL_UARTEx_ReceiveToIdle_DMA(SERIAL->huart, (uint8_t*)SERIAL->trama_rx, SERIAL->sizeT);//inica la recepcion por idle
-__HAL_DMA_DISABLE_IT(SERIAL->huart->hdmarx, DMA_IT_HT); // deshabilita HT, deja activo IDLE + buffer lleno
+    __HAL_UART_CLEAR_OREFLAG(SERIAL->huart);
+    __HAL_UART_FLUSH_DRREGISTER(SERIAL->huart);
+    estado = HAL_UARTEx_ReceiveToIdle_DMA(
+        SERIAL->huart, SERIAL->trama_rx, SERIAL->sizeT);
+    if (estado == HAL_OK)
+    {
+        __HAL_DMA_DISABLE_IT(SERIAL->huart->hdmarx, DMA_IT_HT);
+    }
+    return estado;
 }
 
 void uartRX_INTERRUPT(UART_HandleTypeDef *huart,uint16_t sizex)

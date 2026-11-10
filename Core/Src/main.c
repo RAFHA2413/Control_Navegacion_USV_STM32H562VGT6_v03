@@ -66,6 +66,9 @@
 #define USV_FAILSAFE_TIERRA_MS         500U
 /* Tiempo inicial, ajustar con mediciones y perfiles reales XCTU. */
 #define XBEE_REPLY_GUARD_MS             60U
+/* Rearme RX solamente; no prolongar el failsafe de la propulsion. */
+#define XBEE_RX_REARME_SILENCIO_MS     3000U
+#define XBEE_RX_REARME_INTERVALO_MS   1000U
 
 /* USER CODE END PD */
 
@@ -92,6 +95,9 @@ DMA_HandleTypeDef handle_GPDMA1_Channel0;
 DMA_HandleTypeDef handle_GPDMA1_Channel2;
 
 /* USER CODE BEGIN PV */
+extern volatile uint32_t usv_xbee_uart1_error_irq;
+extern volatile uint32_t usv_xbee_uart1_error_codigo;
+extern volatile uint8_t usv_xbee_uart1_recuperar;
 char texto[600];
 
 
@@ -146,6 +152,13 @@ static uint8_t xbee_fragmento_rx[600U];
 static char xbee_linea[USV_TRAMA_MAXIMA];
 static uint16_t xbee_linea_n = 0U;
 static uint32_t xbee_tramas_descartadas = 0U;
+static uint32_t xbee_rx_eventos = 0U;
+static uint32_t xbee_rx_bytes = 0U;
+static uint32_t xbee_rx_ultimo_evento_ms = 0U;
+static uint32_t xbee_rx_ultimo_rearme_ms = 0U;
+static uint32_t xbee_rx_rearmes_ok = 0U;
+static uint32_t xbee_rx_rearmes_error = 0U;
+static uint32_t xbee_rx_watchdog = 0U;
 static uint8_t xbee_reply_pendiente = 0U;
 static uint32_t xbee_reply_deadline_ms = 0U;
 
@@ -579,6 +592,8 @@ PCB_Banco_Iniciar();
 #endif
 //uartRX_it_idle_dma_init(&UARTRX1);
 uartRX_it_idle_dma_init(&GPS_UARTRX);   // USART1 / estacion de tierra
+xbee_rx_ultimo_evento_ms = HAL_GetTick();
+xbee_rx_ultimo_rearme_ms = HAL_GetTick();
 uartRX_it_idle_dma_init(&GNSS_UARTRX);   // USART2 / GPS L76K
 
 // Inicializa la telemetria oficial $PUSVD por USART1 / XBee
@@ -949,6 +964,32 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         {
             uartx_write_text(&huart6, texto);
         }
+
+        /* Diagnostico local: HAL_OK no implica entrega por RF. */
+        len = snprintf(
+            texto, sizeof(texto),
+            ">xbee_rx_eventos:%lu\r\n"
+            ">xbee_rx_bytes:%lu\r\n"
+            ">xbee_rx_silencio_ms:%lu\r\n"
+            ">xbee_rx_rearmes_ok:%lu\r\n"
+            ">xbee_rx_rearmes_error:%lu\r\n"
+            ">xbee_rx_watchdog:%lu\r\n"
+            ">xbee_uart1_error_irq:%lu\r\n"
+            ">xbee_uart1_error_codigo:%lu\r\n"
+            ">xbee_rx_descartadas:%lu\r\n",
+            (unsigned long)xbee_rx_eventos,
+            (unsigned long)xbee_rx_bytes,
+            (unsigned long)((uint32_t)(HAL_GetTick() - xbee_rx_ultimo_evento_ms)),
+            (unsigned long)xbee_rx_rearmes_ok,
+            (unsigned long)xbee_rx_rearmes_error,
+            (unsigned long)xbee_rx_watchdog,
+            (unsigned long)usv_xbee_uart1_error_irq,
+            (unsigned long)usv_xbee_uart1_error_codigo,
+            (unsigned long)xbee_tramas_descartadas);
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
 #if PCB_BANCO_ACTIVO
         len = snprintf(texto, sizeof(texto),
             ">pcb_armado:%u\r\n>pcb_motor_pulso:%u\r\n"
@@ -1029,10 +1070,13 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
     {
         uint32_t ahora_rx = HAL_GetTick();
 
+        xbee_rx_ultimo_evento_ms = ahora_rx;
+        xbee_rx_eventos++;
         led_rx_ultimo_evento_ms = ahora_rx;
         led_rx_activo = 1U;
 
         uint16_t n_xbee = GPS_UARTRX.num_datos;
+        xbee_rx_bytes += (uint32_t)n_xbee;
         uint8_t copia = (uint8_t)((GPS_UARTRX.trama_rx != NULL) &&
                                   (n_xbee > 0U) &&
                                   (n_xbee <= sizeof(xbee_fragmento_rx)));
@@ -1041,8 +1085,17 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             memcpy(xbee_fragmento_rx, GPS_UARTRX.trama_rx, n_xbee);
         else
             ++xbee_tramas_descartadas;
-        /* RX queda rearmado antes de ejecutar ordenes o responder. */
-        uartRX_DMA_Re_init(&GPS_UARTRX);
+        /* Si HAL rechaza el rearme, watchdog reintentara desde main. */
+        if (uartRX_DMA_Re_init(&GPS_UARTRX) == HAL_OK)
+        {
+            xbee_rx_rearmes_ok++;
+            usv_xbee_uart1_recuperar = 0U;
+        }
+        else
+        {
+            xbee_rx_rearmes_error++;
+            usv_xbee_uart1_recuperar = 1U;
+        }
         comando_tierra_valido = copia
             ? XBee_ExtraerComandos(xbee_fragmento_rx, n_xbee,
                                     &comando_tierra, &linea_completa)
@@ -1315,6 +1368,39 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             HAL_GPIO_TogglePin(
                 LED_RX_TIERRA_GPIO_Port,
                 LED_RX_TIERRA_Pin);
+        }
+    }
+
+    /* Rearme controlado de RX USART1 fuera de las interrupciones.
+     * No toca PWM ni bomba: el failsafe permanece independiente. */
+    {
+        uint32_t ahora = HAL_GetTick();
+        uint8_t sin_eventos =
+            ((uint32_t)(ahora - xbee_rx_ultimo_evento_ms) >=
+             XBEE_RX_REARME_SILENCIO_MS) ? 1U : 0U;
+        if ((GPS_UARTRX.flag_rx == 0U) &&
+            ((usv_xbee_uart1_recuperar != 0U) || (sin_eventos != 0U)) &&
+            ((uint32_t)(ahora - xbee_rx_ultimo_rearme_ms) >=
+             XBEE_RX_REARME_INTERVALO_MS))
+        {
+            HAL_StatusTypeDef estado;
+            xbee_rx_ultimo_rearme_ms = ahora;
+            xbee_rx_watchdog++;
+            estado = HAL_UART_AbortReceive(&huart1);
+            if (estado == HAL_OK)
+            {
+                estado = uartRX_DMA_Re_init(&GPS_UARTRX);
+            }
+            if (estado == HAL_OK)
+            {
+                xbee_rx_rearmes_ok++;
+                usv_xbee_uart1_recuperar = 0U;
+            }
+            else
+            {
+                xbee_rx_rearmes_error++;
+                usv_xbee_uart1_recuperar = 1U;
+            }
         }
     }
 

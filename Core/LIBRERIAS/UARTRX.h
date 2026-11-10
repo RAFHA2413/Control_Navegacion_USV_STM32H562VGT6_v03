@@ -128,7 +128,8 @@ if (UARTRX1.flag_rx==1)
 */
 
 void uartRX_it_idle_dma_init(UARTRXS *SERIAL);
-void uartRX_DMA_Re_init(UARTRXS *SERIAL);
+/* Indica si la HAL acepto el rearme de DMA. */
+HAL_StatusTypeDef uartRX_DMA_Re_init(UARTRXS *SERIAL);
 void uartRX_INTERRUPT(UART_HandleTypeDef *huart,uint16_t sizex);
 void uartRX_DMA_STOP(UARTRXS *SERIAL);
  
