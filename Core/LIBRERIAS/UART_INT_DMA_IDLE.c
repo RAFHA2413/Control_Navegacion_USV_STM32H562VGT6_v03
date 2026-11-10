@@ -25,15 +25,8 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 volatile uint32_t usv_xbee_uart1_error_irq = 0U;
 volatile uint32_t usv_xbee_uart1_error_codigo = 0U;
 volatile uint8_t usv_xbee_uart1_recuperar = 0U;
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
-{
-    if ((huart != NULL) && (huart->Instance == USART1))
-    {
-        usv_xbee_uart1_error_codigo = huart->ErrorCode;
-        usv_xbee_uart1_error_irq++;
-        usv_xbee_uart1_recuperar = 1U;
-    }
-}
+/* HAL_UART_ErrorCallback se define una sola vez en pcb_banco.c,
+ * donde conserva USART6 e integra la notificacion USART1. */
 
 
 #endif 

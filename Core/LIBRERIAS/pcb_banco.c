@@ -23,6 +23,10 @@ extern uint16_t motor_babor_pwm_us, motor_estribor_pwm_us;
 extern int16_t motor_babor_aplicado_pct, motor_estribor_aplicado_pct;
 extern uint8_t motores_pwm_activos, bomba_test_estado;
 extern float servo_test_angulo;
+/* Contadores y marca de rearme USART1 definidos en UART_INT_DMA_IDLE.c. */
+extern volatile uint32_t usv_xbee_uart1_error_irq;
+extern volatile uint32_t usv_xbee_uart1_error_codigo;
+extern volatile uint8_t usv_xbee_uart1_recuperar;
 
 static uint8_t rx_byte;
 static volatile uint8_t fifo[FIFO_SIZE];
@@ -242,9 +246,21 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
             rx_fault = 1U;
     }
 }
+/* Unico callback global: preserva USART6/banco y captura USART1/XBee.
+ * El rearme DMA USART1 se realiza en main(), fuera de interrupciones. */
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-    if (huart == &huart6)
+    if (huart == NULL)
+    {
+        return;
+    }
+    if (huart->Instance == USART1)
+    {
+        usv_xbee_uart1_error_codigo = huart->ErrorCode;
+        usv_xbee_uart1_error_irq++;
+        usv_xbee_uart1_recuperar = 1U;
+    }
+    else if (huart == &huart6)
     {
         rx_fault = 1U;
         (void)HAL_UART_Receive_IT(&huart6, &rx_byte, 1U);
