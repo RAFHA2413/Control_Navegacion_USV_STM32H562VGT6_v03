@@ -47,7 +47,10 @@ _estack = ORIGIN(RAM) + LENGTH(RAM); /* end of "RAM" Ram type memory */
 _sstack = _estack - _Min_Stack_Size;
 
 _Min_Heap_Size = 0x200;      /* required amount of heap  */
-_Min_Stack_Size = 0x400; /* required amount of stack */
+/* Prueba 29 (12-NOV-2026): HardFault FORCED + STKOF (CFSR=0x00100000). */
+/* Reserva de MSP: 8 KiB. Startup carga MSPLIM desde _sstack. */
+/* Validar con .map, medición de pila y prueba con XBee + Nextion. */
+_Min_Stack_Size = 0x2000; /* 8 KiB main stack; anterior: 0x400 (1 KiB) */
 
 /* Sections */
 SECTIONS
