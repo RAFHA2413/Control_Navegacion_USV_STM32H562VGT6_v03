@@ -351,23 +351,41 @@ uint8_t IMU_Init(void)
     bno085_addr_hal = 0U;
     memset(shtp_sequence, 0, sizeof(shtp_sequence));
 
-    if (HAL_I2C_IsDeviceReady(
-            &hi2c1,
-            BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT),
-            3U,
-            100U) == HAL_OK)
+    /*
+     * Prueba 14.5: tolerar retardo de arranque del BNO085.
+     * Hasta tres barridos breves de 0x4A/0x4B, SOLO en el arranque.
+     * Sin busqueda recurrente en el lazo principal para no introducir
+     * retardos en la comunicacion XBee ni en el failsafe.
+     */
+    for (uint8_t intento = 0U; intento < 3U; ++intento)
     {
-        bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT);
+        if (HAL_I2C_IsDeviceReady(
+                &hi2c1,
+                BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT),
+                1U,
+                20U) == HAL_OK)
+        {
+            bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT);
+            break;
+        }
+
+        if (HAL_I2C_IsDeviceReady(
+                &hi2c1,
+                BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT),
+                1U,
+                20U) == HAL_OK)
+        {
+            bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT);
+            break;
+        }
+
+        if (intento < 2U)
+        {
+            HAL_Delay(100U);
+        }
     }
-    else if (HAL_I2C_IsDeviceReady(
-                 &hi2c1,
-                 BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT),
-                 3U,
-                 100U) == HAL_OK)
-    {
-        bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT);
-    }
-    else
+
+    if (bno085_addr_hal == 0U)
     {
         return 0U;
     }

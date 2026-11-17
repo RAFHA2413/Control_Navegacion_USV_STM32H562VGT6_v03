@@ -856,12 +856,16 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             ">imu_ok:%u\r\n"
             ">imu_addr:%u\r\n"
             ">imu_data_ok:%u\r\n"
+            ">imu_i2c_pines:%u\r\n"
+            ">imu_i2c_error_hal:%lu\r\n"
             ">roll:%.2f\r\n"
             ">pitch:%.2f\r\n"
             ">yaw:%.2f\r\n",
             (unsigned int)imu_ok,
             (unsigned int)imu_addr,
             (unsigned int)imu_data_ok,
+            (unsigned int)((GPIOB->IDR >> 6U) & 0x3U),
+            (unsigned long)HAL_I2C_GetError(&hi2c1),
             imu_roll,
             imu_pitch,
             imu_yaw);
