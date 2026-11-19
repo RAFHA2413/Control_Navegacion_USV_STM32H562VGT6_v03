@@ -131,6 +131,21 @@ static USV_IMU150_Probe imu_150_4b;
 static uint32_t imu_150_pe_inicial = 0U;
 static uint8_t imu_150_bus_seguro = 0U;
 
+/* USV 15.1: fotografia de registros GPIOB justo antes de consultar la IMU.
+ * Se almacenan en RAM; ninguna escritura a GPIOB ni a I2C1.
+ */
+typedef struct
+{
+    uint32_t tick_ms;
+    uint32_t moder;
+    uint32_t otyper;
+    uint32_t ospeedr;
+    uint32_t pupdr;
+    uint32_t afrl;
+    uint32_t idr;
+} USV_IMU151_GPIO;
+static USV_IMU151_GPIO imu_151_gpio;
+
 float imu_roll = 0.0f;
 float imu_pitch = 0.0f;
 float imu_yaw = 0.0f;
@@ -708,6 +723,17 @@ HAL_Delay(IMU_149_ESPERA_MS);
 imu_149_tick_inicio = HAL_GetTick();
 imu_149_espera_real_ms = imu_149_tick_inicio - imu_149_tick_antes_espera;
 
+/* USV 15.1: leer GPIOB justo antes de la primera consulta I2C.
+ * PB6 = SCL y PB7 = SDA. Esta lectura no cambia el hardware.
+ */
+imu_151_gpio.tick_ms = HAL_GetTick();
+imu_151_gpio.moder = GPIOB->MODER;
+imu_151_gpio.otyper = GPIOB->OTYPER;
+imu_151_gpio.ospeedr = GPIOB->OSPEEDR;
+imu_151_gpio.pupdr = GPIOB->PUPDR;
+imu_151_gpio.afrl = GPIOB->AFR[0];
+imu_151_gpio.idr = GPIOB->IDR;
+
 /* USV 15.0: dos sondeos directos antes de HAL_I2C_IsDeviceReady.
  * Si 0x4A no libera bus, omitir 0x4B y conservar el diagnostico.
  */
@@ -1147,6 +1173,60 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned long)imu_150_4b.isr_eventos,
             (unsigned long)imu_150_4b.isr_fin,
             (unsigned long)imu_150_4b.duracion_ms);
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* USV 15.1: registros GPIOB capturados antes de probar la IMU. */
+        len = snprintf(
+            texto, sizeof(texto),
+            ">imu_151_tick_ms:%lu\r\n"
+            ">imu_151_moder:%lu\r\n"
+            ">imu_151_otyper:%lu\r\n"
+            ">imu_151_ospeedr:%lu\r\n"
+            ">imu_151_pupdr:%lu\r\n"
+            ">imu_151_afrl:%lu\r\n"
+            ">imu_151_idr:%lu\r\n",
+            (unsigned long)imu_151_gpio.tick_ms,
+            (unsigned long)imu_151_gpio.moder,
+            (unsigned long)imu_151_gpio.otyper,
+            (unsigned long)imu_151_gpio.ospeedr,
+            (unsigned long)imu_151_gpio.pupdr,
+            (unsigned long)imu_151_gpio.afrl,
+            (unsigned long)imu_151_gpio.idr);
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* Interpretacion individual de los pines PB6 / PB7 desde RAM:
+         * MODER=2 (alternativa), OTYPER=1 (open drain),
+         * PUPDR=1 (pull up), AFRL=4 (I2C1).
+         * LEVEL 1=alto en la instantanea, no demuestra ACK.
+         */
+        len = snprintf(
+            texto, sizeof(texto),
+            ">imu_151_pb6_mode:%lu\r\n"
+            ">imu_151_pb7_mode:%lu\r\n"
+            ">imu_151_pb6_od:%lu\r\n"
+            ">imu_151_pb7_od:%lu\r\n"
+            ">imu_151_pb6_pull:%lu\r\n"
+            ">imu_151_pb7_pull:%lu\r\n"
+            ">imu_151_pb6_af:%lu\r\n"
+            ">imu_151_pb7_af:%lu\r\n"
+            ">imu_151_pb6_level:%lu\r\n"
+            ">imu_151_pb7_level:%lu\r\n",
+            (unsigned long)((imu_151_gpio.moder >> 12U) & 0x3U),
+            (unsigned long)((imu_151_gpio.moder >> 14U) & 0x3U),
+            (unsigned long)((imu_151_gpio.otyper >> 6U) & 0x1U),
+            (unsigned long)((imu_151_gpio.otyper >> 7U) & 0x1U),
+            (unsigned long)((imu_151_gpio.pupdr >> 12U) & 0x3U),
+            (unsigned long)((imu_151_gpio.pupdr >> 14U) & 0x3U),
+            (unsigned long)((imu_151_gpio.afrl >> 24U) & 0xFU),
+            (unsigned long)((imu_151_gpio.afrl >> 28U) & 0xFU),
+            (unsigned long)((imu_151_gpio.idr >> 6U) & 0x1U),
+            (unsigned long)((imu_151_gpio.idr >> 7U) & 0x1U));
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
             uartx_write_text(&huart6, texto);
