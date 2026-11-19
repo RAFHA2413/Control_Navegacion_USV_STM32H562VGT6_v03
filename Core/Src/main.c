@@ -155,6 +155,37 @@ static USV_IMU151_GPIO imu_151_gpio;
 static uint32_t imu_152_pclk1_hz = 0U;
 static uint32_t imu_152_timingr = 0U;
 
+/* USV 15.4: escaneo exhaustivo de las 112 direcciones I2C de 7 bits
+ * que no estan reservadas (0x08 a 0x77 inclusive).
+ * El sondeo se hace UNA SOLA VEZ antes de IMU_Init() y se lee desde RAM.
+ * Estado: 0=no ejecutado, 1=en curso, 2=completado, 3=interrumpido.
+ */
+#define USV_I2C_SCAN_MIN_ADDR 0x08U
+#define USV_I2C_SCAN_MAX_ADDR 0x77U
+#define USV_I2C_SCAN_TOTAL (USV_I2C_SCAN_MAX_ADDR - USV_I2C_SCAN_MIN_ADDR + 1U)
+typedef struct
+{
+    uint8_t estado;
+    uint8_t ultimo_addr;
+    uint8_t total_ack;
+    uint8_t ack_addr[USV_I2C_SCAN_TOTAL];
+    uint8_t hal_4a; /* 255=no consultada; 0=HAL_OK */
+    uint8_t hal_4b;
+    uint16_t consultadas;
+    uint16_t hal_error;
+    uint16_t hal_timeout;
+    uint16_t hal_busy;
+    uint16_t error_bus;
+    uint32_t err_4a;
+    uint32_t err_4b;
+    uint32_t pclk1_hz;
+    uint32_t timingr;
+    uint32_t duracion_ms;
+    uint32_t mascara_ack[4]; /* bit N: direccion N (0-127) */
+} USV_I2C_ScanResultado;
+static USV_I2C_ScanResultado i2c_scan_154;
+static uint8_t i2c_scan_154_indice_publicar = 0U;
+
 float imu_roll = 0.0f;
 float imu_pitch = 0.0f;
 float imu_yaw = 0.0f;
@@ -607,6 +638,100 @@ static uint8_t USV_IMU150_ProbarDireccion(uint8_t direccion7,
     return (resultado->estado == 1U || resultado->estado == 2U) ? 1U : 0U;
 }
 
+/* USV 15.4: escaneo de direcciones, sin escritura de datos.
+ * HAL_I2C_IsDeviceReady emite la direccion 7-bit desplazada.
+ * Cada direccion se consulta una sola vez, con limite de 10 ms.
+ * Si hay bloqueo/BUSY/error de bus, se declara incompleto.
+ */
+static void USV_I2C_ScanCompleto(void)
+{
+    uint8_t addr;
+    uint32_t inicio = HAL_GetTick();
+    HAL_StatusTypeDef estado_hal;
+    uint32_t error;
+
+    memset(&i2c_scan_154, 0, sizeof(i2c_scan_154));
+    i2c_scan_154.hal_4a = 255U;
+    i2c_scan_154.hal_4b = 255U;
+    i2c_scan_154.pclk1_hz = HAL_RCC_GetPCLK1Freq();
+    i2c_scan_154.timingr = hi2c1.Instance->TIMINGR;
+
+    if ((HAL_I2C_GetState(&hi2c1) != HAL_I2C_STATE_READY) ||
+        ((hi2c1.Instance->CR1 & I2C_CR1_PE) == 0U) ||
+        ((hi2c1.Instance->ISR & I2C_ISR_BUSY) != 0U))
+    {
+        i2c_scan_154.estado = 3U;
+        i2c_scan_154.hal_busy = 1U;
+        i2c_scan_154.duracion_ms = HAL_GetTick() - inicio;
+        return;
+    }
+
+    i2c_scan_154.estado = 1U;
+    for (addr = USV_I2C_SCAN_MIN_ADDR; addr <= USV_I2C_SCAN_MAX_ADDR; ++addr)
+    {
+        estado_hal = HAL_I2C_IsDeviceReady(
+            &hi2c1, (uint16_t)((uint16_t)addr << 1U), 1U, 10U);
+        error = HAL_I2C_GetError(&hi2c1);
+
+        i2c_scan_154.consultadas++;
+        i2c_scan_154.ultimo_addr = addr;
+
+        if (addr == 0x4AU)
+        {
+            i2c_scan_154.hal_4a = (uint8_t)estado_hal;
+            i2c_scan_154.err_4a = error;
+        }
+        if (addr == 0x4BU)
+        {
+            i2c_scan_154.hal_4b = (uint8_t)estado_hal;
+            i2c_scan_154.err_4b = error;
+        }
+
+        if (estado_hal == HAL_OK)
+        {
+            i2c_scan_154.ack_addr[i2c_scan_154.total_ack++] = addr;
+            i2c_scan_154.mascara_ack[addr / 32U] |=
+                (1UL << (addr % 32U));
+        }
+        else if (estado_hal == HAL_ERROR)
+        {
+            i2c_scan_154.hal_error++;
+        }
+        else if (estado_hal == HAL_TIMEOUT)
+        {
+            i2c_scan_154.hal_timeout++;
+            i2c_scan_154.estado = 3U;
+            break;
+        }
+        else /* HAL_BUSY */
+        {
+            i2c_scan_154.hal_busy++;
+            i2c_scan_154.estado = 3U;
+            break;
+        }
+
+        if ((error & (HAL_I2C_ERROR_BERR | HAL_I2C_ERROR_ARLO)) != 0U)
+        {
+            i2c_scan_154.error_bus++;
+            i2c_scan_154.estado = 3U;
+            break;
+        }
+        if ((hi2c1.Instance->ISR & I2C_ISR_BUSY) != 0U)
+        {
+            i2c_scan_154.hal_busy++;
+            i2c_scan_154.estado = 3U;
+            break;
+        }
+    }
+
+    if (i2c_scan_154.consultadas == USV_I2C_SCAN_TOTAL &&
+        i2c_scan_154.estado == 1U)
+    {
+        i2c_scan_154.estado = 2U;
+    }
+    i2c_scan_154.duracion_ms = HAL_GetTick() - inicio;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -731,6 +856,11 @@ imu_149_tick_antes_espera = HAL_GetTick();
 HAL_Delay(IMU_149_ESPERA_MS);
 imu_149_tick_inicio = HAL_GetTick();
 imu_149_espera_real_ms = imu_149_tick_inicio - imu_149_tick_antes_espera;
+
+/* USV 15.4: escanear antes de hacer comprobaciones del BNO085.
+ * No reconfigura PB6/PB7 ni modifica el protocolo de los subsistemas.
+ */
+USV_I2C_ScanCompleto();
 
 /* USV 15.2: capturar reloj PCLK1 y TIMINGR cargado en I2C1. */
 imu_152_pclk1_hz = HAL_RCC_GetPCLK1Freq();
@@ -1256,6 +1386,92 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned long)imu_152_timingr,
             (unsigned int)(imu_152_timingr == USV_I2C1_TIMING_100KHZ),
             (unsigned int)(imu_152_pclk1_hz == 64000000U));
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* USV 15.4: publica resultado del escaneo desde RAM, a 2 Hz.
+         * estado=2 y consultadas=112 prueban que el barrido fue completo.
+         * Las mascaras contienen todos los ACK; no se omiten dispositivos.
+         */
+        len = snprintf(
+            texto, sizeof(texto),
+            ">i2c_scan_estado:%u\r\n"
+            ">i2c_scan_completo:%u\r\n"
+            ">i2c_scan_consultadas:%u\r\n"
+            ">i2c_scan_total:%u\r\n"
+            ">i2c_scan_ultimo_addr:%u\r\n"
+            ">i2c_scan_encontrados:%u\r\n"
+            ">i2c_scan_hal_error:%u\r\n"
+            ">i2c_scan_hal_timeout:%u\r\n"
+            ">i2c_scan_hal_busy:%u\r\n"
+            ">i2c_scan_error_bus:%u\r\n"
+            ">i2c_scan_4a_hal:%u\r\n"
+            ">i2c_scan_4a_error:%lu\r\n"
+            ">i2c_scan_4b_hal:%u\r\n"
+            ">i2c_scan_4b_error:%lu\r\n"
+            ">i2c_scan_pclk1_hz:%lu\r\n"
+            ">i2c_scan_timingr:%lu\r\n"
+            ">i2c_scan_duracion_ms:%lu\r\n",
+            (unsigned int)i2c_scan_154.estado,
+            (unsigned int)(i2c_scan_154.estado == 2U),
+            (unsigned int)i2c_scan_154.consultadas,
+            (unsigned int)USV_I2C_SCAN_TOTAL,
+            (unsigned int)i2c_scan_154.ultimo_addr,
+            (unsigned int)i2c_scan_154.total_ack,
+            (unsigned int)i2c_scan_154.hal_error,
+            (unsigned int)i2c_scan_154.hal_timeout,
+            (unsigned int)i2c_scan_154.hal_busy,
+            (unsigned int)i2c_scan_154.error_bus,
+            (unsigned int)i2c_scan_154.hal_4a,
+            (unsigned long)i2c_scan_154.err_4a,
+            (unsigned int)i2c_scan_154.hal_4b,
+            (unsigned long)i2c_scan_154.err_4b,
+            (unsigned long)i2c_scan_154.pclk1_hz,
+            (unsigned long)i2c_scan_154.timingr,
+            (unsigned long)i2c_scan_154.duracion_ms);
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+        /* Lista explicita de TODOS los ACK, hasta 16 por ciclo Teleplot.
+         * Si hay mas, se rotan los restantes entre ciclos.
+         * El nombre incluye la direccion hexadecimal: i2c_ack_4A=1.
+         */
+        if (i2c_scan_154.total_ack > 0U)
+        {
+            uint8_t n;
+            for (n = 0U; n < 16U && n < i2c_scan_154.total_ack; ++n)
+            {
+                uint8_t addr_encontrada =
+                    i2c_scan_154.ack_addr[i2c_scan_154_indice_publicar];
+                len = snprintf(texto, sizeof(texto),
+                    ">i2c_ack_%02X:1\r\n", (unsigned int)addr_encontrada);
+                if ((len > 0) && ((size_t)len < sizeof(texto)))
+                {
+                    uartx_write_text(&huart6, texto);
+                }
+                i2c_scan_154_indice_publicar++;
+                if (i2c_scan_154_indice_publicar >= i2c_scan_154.total_ack)
+                {
+                    i2c_scan_154_indice_publicar = 0U;
+                }
+            }
+        }
+        /* Mascaras de 32 direcciones: bit N = ACK en direccion N.
+         * Permiten reconstruir el barrido completo sin enviar 112 etiquetas.
+         */
+        len = snprintf(
+            texto, sizeof(texto),
+            ">i2c_scan_mask_00_1f:%lu\r\n"
+            ">i2c_scan_mask_20_3f:%lu\r\n"
+            ">i2c_scan_mask_40_5f:%lu\r\n"
+            ">i2c_scan_mask_60_7f:%lu\r\n",
+            (unsigned long)i2c_scan_154.mascara_ack[0],
+            (unsigned long)i2c_scan_154.mascara_ack[1],
+            (unsigned long)i2c_scan_154.mascara_ack[2],
+            (unsigned long)i2c_scan_154.mascara_ack[3]);
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
             uartx_write_text(&huart6, texto);
