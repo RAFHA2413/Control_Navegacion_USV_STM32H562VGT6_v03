@@ -863,8 +863,10 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             ">imu_i2c_error_hal:%lu\r\n"
             ">imu_diag_etapa:%u\r\n"
             ">imu_probe_4a_hal:%u\r\n"
+            ">imu_probe_4a_max_intentos:%u\r\n"
             ">imu_probe_4a_error:%lu\r\n"
             ">imu_probe_4b_hal:%u\r\n"
+            ">imu_probe_4b_max_intentos:%u\r\n"
             ">imu_probe_4b_error:%lu\r\n"
             ">imu_diag_error_etapa:%lu\r\n"
             ">roll:%.2f\r\n"
@@ -877,8 +879,10 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned long)HAL_I2C_GetError(&hi2c1),
             (unsigned int)imu_diag_arranque.etapa,
             (unsigned int)imu_diag_arranque.estado_4a,
+            (unsigned int)imu_diag_arranque.intentos_max_4a,
             (unsigned long)imu_diag_arranque.error_4a,
             (unsigned int)imu_diag_arranque.estado_4b,
+            (unsigned int)imu_diag_arranque.intentos_max_4b,
             (unsigned long)imu_diag_arranque.error_4b,
             (unsigned long)imu_diag_arranque.error_etapa,
             imu_roll,
