@@ -114,6 +114,22 @@ static uint32_t imu_149_tick_fin = 0U;
 static uint32_t imu_149_espera_real_ms = 0U;
 static uint32_t imu_149_init_duracion_ms = 0U;
 
+/* USV 15.0: resultado de sondeo directo unico, previo a IMU_Init.
+ * estado: 0=no consultado, 1=STOP sin NACK (ACK probable),
+ * 2=NACK observado, 3=espera agotada, 4=error de bus, 5=bus no libre.
+ * isr_eventos conserva los bits detectados antes de limpiar banderas.
+ */
+typedef struct
+{
+    uint8_t estado;
+    uint32_t isr_eventos;
+    uint32_t isr_fin;
+    uint32_t duracion_ms;
+} USV_IMU150_Probe;
+static USV_IMU150_Probe imu_150_4a;
+static USV_IMU150_Probe imu_150_4b;
+static uint32_t imu_150_pe_inicial = 0U;
+
 float imu_roll = 0.0f;
 float imu_pitch = 0.0f;
 float imu_yaw = 0.0f;
@@ -493,6 +509,78 @@ strcpy(procesa, strtok(0, ","));  //captura hasta el /
 
  } 
   } */
+/* USV 15.0: prueba I2C de direccion (NBYTES=0) sin usar HAL en paralelo.
+ * Solo puede ejecutarse con HAL READY y el bus inactivo, en arranque.
+ * No se modifica la configuracion TIMINGR ni los GPIO.
+ * Limite de 15 ms por direccion. No reintenta ni se invoca en while(1).
+ */
+static uint8_t USV_IMU150_ProbarDireccion(uint8_t direccion7,
+                                         USV_IMU150_Probe *resultado)
+{
+    uint32_t tick_inicio;
+    uint32_t isr;
+    uint32_t cr2_previo;
+
+    if (resultado == NULL)
+    {
+        return 0U;
+    }
+    memset(resultado, 0, sizeof(*resultado));
+    if ((HAL_I2C_GetState(&hi2c1) != HAL_I2C_STATE_READY) ||
+        ((hi2c1.Instance->CR1 & I2C_CR1_PE) == 0U) ||
+        ((hi2c1.Instance->ISR & I2C_ISR_BUSY) != 0U))
+    {
+        resultado->estado = 5U;
+        resultado->isr_fin = hi2c1.Instance->ISR;
+        return 0U;
+    }
+
+    cr2_previo = hi2c1.Instance->CR2;
+    /* Borrar exclusivamente banderas residuales de la prueba anterior. */
+    hi2c1.Instance->ICR = I2C_ICR_NACKCF | I2C_ICR_STOPCF |
+                          I2C_ICR_BERRCF | I2C_ICR_ARLOCF;
+    tick_inicio = HAL_GetTick();
+    /* Direccion SADD de 7 bits desplazada; AUTOEND con NBYTES=0. */
+    hi2c1.Instance->CR2 = ((uint32_t)direccion7 << 1U) |
+                          I2C_CR2_AUTOEND | I2C_CR2_START;
+
+    do
+    {
+        isr = hi2c1.Instance->ISR;
+        resultado->isr_eventos |= isr & (I2C_ISR_NACKF |
+            I2C_ISR_STOPF | I2C_ISR_BERR | I2C_ISR_ARLO);
+        if ((isr & (I2C_ISR_BERR | I2C_ISR_ARLO)) != 0U)
+        {
+            resultado->estado = 4U;
+            break;
+        }
+        if ((isr & I2C_ISR_STOPF) != 0U)
+        {
+            resultado->estado =
+                ((resultado->isr_eventos & I2C_ISR_NACKF) != 0U) ? 2U : 1U;
+            break;
+        }
+    } while ((uint32_t)(HAL_GetTick() - tick_inicio) < 15U);
+
+    if (resultado->estado == 0U)
+    {
+        resultado->estado = 3U;
+    }
+    resultado->duracion_ms = HAL_GetTick() - tick_inicio;
+    resultado->isr_fin = hi2c1.Instance->ISR;
+
+    if ((resultado->isr_fin & I2C_ISR_BUSY) != 0U)
+    {
+        /* No escribir CR2 ni iniciar nuevas transacciones con BUSY activo. */
+        resultado->estado = 5U;
+        return 0U;
+    }
+    hi2c1.Instance->ICR = I2C_ICR_NACKCF | I2C_ICR_STOPCF |
+                          I2C_ICR_BERRCF | I2C_ICR_ARLOCF;
+    hi2c1.Instance->CR2 = cr2_previo;
+    return 1U;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -618,8 +706,24 @@ HAL_Delay(IMU_149_ESPERA_MS);
 imu_149_tick_inicio = HAL_GetTick();
 imu_149_espera_real_ms = imu_149_tick_inicio - imu_149_tick_antes_espera;
 
-// Inicializa BNO085
-imu_ok = IMU_Init();
+/* USV 15.0: dos sondeos directos antes de HAL_I2C_IsDeviceReady.
+ * Si 0x4A no libera bus, omitir 0x4B y conservar el diagnostico.
+ */
+imu_150_pe_inicial = (hi2c1.Instance->CR1 & I2C_CR1_PE) != 0U;
+if (USV_IMU150_ProbarDireccion(0x4AU, &imu_150_4a) != 0U)
+{
+    (void)USV_IMU150_ProbarDireccion(0x4BU, &imu_150_4b);
+}
+
+// Inicializa BNO085 solo si el bus quedo libre; no forzar HAL si BUSY.
+if ((hi2c1.Instance->ISR & I2C_ISR_BUSY) == 0U)
+{
+    imu_ok = IMU_Init();
+}
+else
+{
+    imu_ok = 0U;
+}
 imu_149_tick_fin = HAL_GetTick();
 imu_149_init_duracion_ms = imu_149_tick_fin - imu_149_tick_inicio;
 imu_addr = IMU_GetAddress7bit();
@@ -1012,6 +1116,32 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned long)imu_149_tick_fin,
             (unsigned long)imu_149_espera_real_ms,
             (unsigned long)imu_149_init_duracion_ms);
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* USV 15.0: instantaneas tomadas antes de que HAL limpie NACKF. */
+        len = snprintf(
+            texto, sizeof(texto),
+            ">imu_150_pe:%lu\r\n"
+            ">imu_150_4a_estado:%u\r\n"
+            ">imu_150_4a_eventos:%lu\r\n"
+            ">imu_150_4a_isr_fin:%lu\r\n"
+            ">imu_150_4a_tiempo_ms:%lu\r\n"
+            ">imu_150_4b_estado:%u\r\n"
+            ">imu_150_4b_eventos:%lu\r\n"
+            ">imu_150_4b_isr_fin:%lu\r\n"
+            ">imu_150_4b_tiempo_ms:%lu\r\n",
+            (unsigned long)imu_150_pe_inicial,
+            (unsigned int)imu_150_4a.estado,
+            (unsigned long)imu_150_4a.isr_eventos,
+            (unsigned long)imu_150_4a.isr_fin,
+            (unsigned long)imu_150_4a.duracion_ms,
+            (unsigned int)imu_150_4b.estado,
+            (unsigned long)imu_150_4b.isr_eventos,
+            (unsigned long)imu_150_4b.isr_fin,
+            (unsigned long)imu_150_4b.duracion_ms);
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
             uartx_write_text(&huart6, texto);
