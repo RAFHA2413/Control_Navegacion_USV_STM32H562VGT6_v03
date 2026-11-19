@@ -104,6 +104,8 @@ char texto[600];
 volatile uint8_t imu_ok = 0U;
 volatile uint8_t imu_addr = 0U;
 volatile uint8_t imu_data_ok = 0U;
+/* Diagnostico de arranque inmutable: se muestra en Teleplot a 2 Hz. */
+static IMU_Diagnostico imu_diag_arranque;
 
 float imu_roll = 0.0f;
 float imu_pitch = 0.0f;
@@ -602,6 +604,7 @@ TELEMETRIA_USV_init(&TELEMETRIA1);
 // Inicializa BNO085
 imu_ok = IMU_Init();
 imu_addr = IMU_GetAddress7bit();
+IMU_GetDiagnostico(&imu_diag_arranque);
 
 // Inicializa DS18B20 / 1-Wire en PC2 (TEMPE)
 TEMPE_Init();
@@ -858,6 +861,12 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             ">imu_data_ok:%u\r\n"
             ">imu_i2c_pines:%u\r\n"
             ">imu_i2c_error_hal:%lu\r\n"
+            ">imu_diag_etapa:%u\r\n"
+            ">imu_probe_4a_hal:%u\r\n"
+            ">imu_probe_4a_error:%lu\r\n"
+            ">imu_probe_4b_hal:%u\r\n"
+            ">imu_probe_4b_error:%lu\r\n"
+            ">imu_diag_error_etapa:%lu\r\n"
             ">roll:%.2f\r\n"
             ">pitch:%.2f\r\n"
             ">yaw:%.2f\r\n",
@@ -866,6 +875,12 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned int)imu_data_ok,
             (unsigned int)((GPIOB->IDR >> 6U) & 0x3U),
             (unsigned long)HAL_I2C_GetError(&hi2c1),
+            (unsigned int)imu_diag_arranque.etapa,
+            (unsigned int)imu_diag_arranque.estado_4a,
+            (unsigned long)imu_diag_arranque.error_4a,
+            (unsigned int)imu_diag_arranque.estado_4b,
+            (unsigned long)imu_diag_arranque.error_4b,
+            (unsigned long)imu_diag_arranque.error_etapa,
             imu_roll,
             imu_pitch,
             imu_yaw);
