@@ -129,6 +129,7 @@ typedef struct
 static USV_IMU150_Probe imu_150_4a;
 static USV_IMU150_Probe imu_150_4b;
 static uint32_t imu_150_pe_inicial = 0U;
+static uint8_t imu_150_bus_seguro = 0U;
 
 float imu_roll = 0.0f;
 float imu_pitch = 0.0f;
@@ -578,7 +579,8 @@ static uint8_t USV_IMU150_ProbarDireccion(uint8_t direccion7,
     hi2c1.Instance->ICR = I2C_ICR_NACKCF | I2C_ICR_STOPCF |
                           I2C_ICR_BERRCF | I2C_ICR_ARLOCF;
     hi2c1.Instance->CR2 = cr2_previo;
-    return 1U;
+    /* Solo encadenar transacciones si se observo STOP completo. */
+    return (resultado->estado == 1U || resultado->estado == 2U) ? 1U : 0U;
 }
 
 /* USER CODE END 0 */
@@ -712,11 +714,12 @@ imu_149_espera_real_ms = imu_149_tick_inicio - imu_149_tick_antes_espera;
 imu_150_pe_inicial = (hi2c1.Instance->CR1 & I2C_CR1_PE) != 0U;
 if (USV_IMU150_ProbarDireccion(0x4AU, &imu_150_4a) != 0U)
 {
-    (void)USV_IMU150_ProbarDireccion(0x4BU, &imu_150_4b);
+    imu_150_bus_seguro = USV_IMU150_ProbarDireccion(0x4BU, &imu_150_4b);
 }
 
-// Inicializa BNO085 solo si el bus quedo libre; no forzar HAL si BUSY.
-if ((hi2c1.Instance->ISR & I2C_ISR_BUSY) == 0U)
+// Evitar HAL si algun sondeo no concluyo con STOP completo.
+if ((imu_150_bus_seguro != 0U) &&
+    ((hi2c1.Instance->ISR & I2C_ISR_BUSY) == 0U))
 {
     imu_ok = IMU_Init();
 }
@@ -1125,6 +1128,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
         len = snprintf(
             texto, sizeof(texto),
             ">imu_150_pe:%lu\r\n"
+            ">imu_150_bus_seguro:%u\r\n"
             ">imu_150_4a_estado:%u\r\n"
             ">imu_150_4a_eventos:%lu\r\n"
             ">imu_150_4a_isr_fin:%lu\r\n"
@@ -1134,6 +1138,7 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             ">imu_150_4b_isr_fin:%lu\r\n"
             ">imu_150_4b_tiempo_ms:%lu\r\n",
             (unsigned long)imu_150_pe_inicial,
+            (unsigned int)imu_150_bus_seguro,
             (unsigned int)imu_150_4a.estado,
             (unsigned long)imu_150_4a.isr_eventos,
             (unsigned long)imu_150_4a.isr_fin,
