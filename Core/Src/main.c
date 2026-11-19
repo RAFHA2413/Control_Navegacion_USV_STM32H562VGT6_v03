@@ -890,6 +890,34 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             uartx_write_text(&huart6, texto);
         }
 
+        /* USV 14.7: instantaneas I2C1 de arranque; lectura de RAM a 2 Hz. */
+        len = snprintf(
+            texto, sizeof(texto),
+            ">imu_i2c_estado:%lu\r\n"
+            ">imu_i2c_modo:%lu\r\n"
+            ">imu_i2c_isr:%lu\r\n"
+            ">imu_i2c_busy:%u\r\n"
+            ">imu_i2c_nack:%u\r\n"
+            ">imu_i2c_berr:%u\r\n"
+            ">imu_i2c_arbitration:%u\r\n"
+            ">imu_i2c_isr_inicial:%lu\r\n"
+            ">imu_i2c_isr_4a:%lu\r\n"
+            ">imu_i2c_isr_4b:%lu\r\n",
+            (unsigned long)imu_diag_arranque.estado_i2c,
+            (unsigned long)imu_diag_arranque.modo_i2c,
+            (unsigned long)imu_diag_arranque.isr_final,
+            (unsigned int)((imu_diag_arranque.isr_final & I2C_ISR_BUSY) != 0U),
+            (unsigned int)((imu_diag_arranque.isr_final & I2C_ISR_NACKF) != 0U),
+            (unsigned int)((imu_diag_arranque.isr_final & I2C_ISR_BERR) != 0U),
+            (unsigned int)((imu_diag_arranque.isr_final & I2C_ISR_ARLO) != 0U),
+            (unsigned long)imu_diag_arranque.isr_inicial,
+            (unsigned long)imu_diag_arranque.isr_4a,
+            (unsigned long)imu_diag_arranque.isr_4b);
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
         /* Bloque 3: estado de recepcion GNSS. */
         len = snprintf(
             texto,
