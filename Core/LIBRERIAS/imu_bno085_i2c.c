@@ -350,6 +350,10 @@ static uint8_t IMU_QuaternionToEuler(
 uint8_t IMU_Init(void)
 {
     HAL_StatusTypeDef estado;
+    uint32_t tick_inicio;
+    uint8_t direccion_idx;
+    uint8_t intento;
+    const uint8_t direcciones[2] = {BNO085_ADDR_4A_7BIT, BNO085_ADDR_4B_7BIT};
 
     imu_initialized = 0U;
     bno085_addr_hal = 0U;
@@ -359,34 +363,68 @@ uint8_t IMU_Init(void)
     imu_diagnostico.estado_4a = 255U; /* No consultada. */
     imu_diagnostico.estado_4b = 255U; /* No consultada. */
     imu_diagnostico.isr_inicial = hi2c1.Instance->ISR;
+    /* Captura de registros reales: no modifica CR1, CR2 ni TIMINGR. */
+    imu_diagnostico.cr1_inicio = hi2c1.Instance->CR1;
+    imu_diagnostico.cr2_inicio = hi2c1.Instance->CR2;
+    imu_diagnostico.timingr_inicio = hi2c1.Instance->TIMINGR;
+    imu_diagnostico.addressing_mode = hi2c1.Init.AddressingMode;
 
-    /*
-     * USV 14.6: restaurar UNICAMENTE la deteccion usada en USV 11.2:
-     * 0x4A y, si no responde, 0x4B; 3 intentos y 100 ms por llamada.
-     * Solo se ejecuta una vez durante el arranque, sin sondeos en while(1).
-     * Se mantienen los timeouts de transferencias SHTP de 14.5 (20 ms).
+    /* 14.8: tres llamadas de UN intento por direccion.
+     * Preserva el maximo de tres intentos y 100 ms por intento.
+     * Se ejecuta solo durante IMU_Init(); no crea escaneos periodicos.
+     * HAL puede limpiar NACKF antes de retornar; error 32 NO prueba NACK.
      */
-    estado = HAL_I2C_IsDeviceReady(
-        &hi2c1, BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT), 3U, 100U);
-    imu_diagnostico.isr_4a = hi2c1.Instance->ISR;
-    imu_diagnostico.estado_4a = (uint8_t)estado;
-    imu_diagnostico.error_4a = HAL_I2C_GetError(&hi2c1);
-
-    if (estado == HAL_OK)
+    for (direccion_idx = 0U; direccion_idx < 2U; direccion_idx++)
     {
-        bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT);
-    }
-    else
-    {
-        estado = HAL_I2C_IsDeviceReady(
-            &hi2c1, BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT), 3U, 100U);
-        imu_diagnostico.isr_4b = hi2c1.Instance->ISR;
-        imu_diagnostico.estado_4b = (uint8_t)estado;
-        imu_diagnostico.error_4b = HAL_I2C_GetError(&hi2c1);
-
-        if (estado == HAL_OK)
+        for (intento = 0U; intento < 3U; intento++)
         {
-            bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT);
+            imu_diagnostico.probe_hal[direccion_idx][intento] = 255U;
+        }
+    }
+
+    for (direccion_idx = 0U; direccion_idx < 2U; direccion_idx++)
+    {
+        for (intento = 0U; intento < 3U; intento++)
+        {
+            tick_inicio = HAL_GetTick();
+            estado = HAL_I2C_IsDeviceReady(&hi2c1,
+                BNO085_ADDR_HAL(direcciones[direccion_idx]), 1U, 100U);
+            imu_diagnostico.probe_duracion_ms[direccion_idx][intento] =
+                HAL_GetTick() - tick_inicio;
+            imu_diagnostico.probe_hal[direccion_idx][intento] = (uint8_t)estado;
+            imu_diagnostico.probe_error[direccion_idx][intento] =
+                HAL_I2C_GetError(&hi2c1);
+
+            if (direccion_idx == 0U)
+            {
+                imu_diagnostico.isr_4a = hi2c1.Instance->ISR;
+                imu_diagnostico.estado_4a = (uint8_t)estado;
+                imu_diagnostico.error_4a =
+                    imu_diagnostico.probe_error[direccion_idx][intento];
+            }
+            else
+            {
+                imu_diagnostico.isr_4b = hi2c1.Instance->ISR;
+                imu_diagnostico.estado_4b = (uint8_t)estado;
+                imu_diagnostico.error_4b =
+                    imu_diagnostico.probe_error[direccion_idx][intento];
+            }
+
+            if (estado == HAL_OK)
+            {
+                bno085_addr_hal = BNO085_ADDR_HAL(direcciones[direccion_idx]);
+                break;
+            }
+            /* HAL_BUSY no implica que un intento haya sido transmitido:
+             * preservar resultado e interrumpir para evitar mas operaciones. */
+            if (estado == HAL_BUSY)
+            {
+                break;
+            }
+        }
+        if (bno085_addr_hal != 0U)
+        {
+            break;
         }
     }
 
