@@ -106,6 +106,13 @@ volatile uint8_t imu_addr = 0U;
 volatile uint8_t imu_data_ok = 0U;
 /* Diagnostico de arranque inmutable: se muestra en Teleplot a 2 Hz. */
 static IMU_Diagnostico imu_diag_arranque;
+/* USV 14.9: diagnostico de espera inicial, solo en el arranque. */
+#define IMU_149_ESPERA_MS 1500U
+static uint32_t imu_149_tick_antes_espera = 0U;
+static uint32_t imu_149_tick_inicio = 0U;
+static uint32_t imu_149_tick_fin = 0U;
+static uint32_t imu_149_espera_real_ms = 0U;
+static uint32_t imu_149_init_duracion_ms = 0U;
 
 float imu_roll = 0.0f;
 float imu_pitch = 0.0f;
@@ -601,8 +608,20 @@ uartRX_it_idle_dma_init(&GNSS_UARTRX);   // USART2 / GPS L76K
 // Inicializa la telemetria oficial $PUSVD por USART1 / XBee
 TELEMETRIA_USV_init(&TELEMETRIA1);
 
+/* USV 14.9: espera adicional fija para probar estabilidad de arranque.
+ * Las dos pausas existentes de 300 ms del LED permanecen intactas.
+ * No se modifican I2C1, XBee, PWM, SHTP ni el failsafe.
+ * Atencion: esta espera bloquea el avance de la secuencia de arranque.
+ */
+imu_149_tick_antes_espera = HAL_GetTick();
+HAL_Delay(IMU_149_ESPERA_MS);
+imu_149_tick_inicio = HAL_GetTick();
+imu_149_espera_real_ms = imu_149_tick_inicio - imu_149_tick_antes_espera;
+
 // Inicializa BNO085
 imu_ok = IMU_Init();
+imu_149_tick_fin = HAL_GetTick();
+imu_149_init_duracion_ms = imu_149_tick_fin - imu_149_tick_inicio;
 imu_addr = IMU_GetAddress7bit();
 IMU_GetDiagnostico(&imu_diag_arranque);
 
@@ -973,6 +992,26 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned long)imu_diag_arranque.probe_duracion_ms[1][0],
             (unsigned long)imu_diag_arranque.probe_duracion_ms[1][1],
             (unsigned long)imu_diag_arranque.probe_duracion_ms[1][2]);
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* USV 14.9: tiempos de arranque IMU, leidos desde RAM. */
+        len = snprintf(
+            texto, sizeof(texto),
+            ">imu_149_espera_config_ms:%lu\r\n"
+            ">imu_149_tick_antes_espera:%lu\r\n"
+            ">imu_149_tick_inicio:%lu\r\n"
+            ">imu_149_tick_fin:%lu\r\n"
+            ">imu_149_espera_real_ms:%lu\r\n"
+            ">imu_149_init_duracion_ms:%lu\r\n",
+            (unsigned long)IMU_149_ESPERA_MS,
+            (unsigned long)imu_149_tick_antes_espera,
+            (unsigned long)imu_149_tick_inicio,
+            (unsigned long)imu_149_tick_fin,
+            (unsigned long)imu_149_espera_real_ms,
+            (unsigned long)imu_149_init_duracion_ms);
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
             uartx_write_text(&huart6, texto);
