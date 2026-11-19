@@ -146,6 +146,15 @@ typedef struct
 } USV_IMU151_GPIO;
 static USV_IMU151_GPIO imu_151_gpio;
 
+/* USV 15.2: captura del reloj y TIMINGR efectivo antes de consultar BNO085.
+ * Bus estandar 100 kHz nominal: PCLK1=64 MHz, tr=300 ns, tf=100 ns,
+ * filtro analogico habilitado, filtro digital 0.
+ * Valor calculado estimado; frecuencia fisica depende del bus real.
+ */
+#define USV_I2C1_TIMING_100KHZ 0x30924056U
+static uint32_t imu_152_pclk1_hz = 0U;
+static uint32_t imu_152_timingr = 0U;
+
 float imu_roll = 0.0f;
 float imu_pitch = 0.0f;
 float imu_yaw = 0.0f;
@@ -723,6 +732,10 @@ HAL_Delay(IMU_149_ESPERA_MS);
 imu_149_tick_inicio = HAL_GetTick();
 imu_149_espera_real_ms = imu_149_tick_inicio - imu_149_tick_antes_espera;
 
+/* USV 15.2: capturar reloj PCLK1 y TIMINGR cargado en I2C1. */
+imu_152_pclk1_hz = HAL_RCC_GetPCLK1Freq();
+imu_152_timingr = hi2c1.Instance->TIMINGR;
+
 /* USV 15.1: leer GPIOB justo antes de la primera consulta I2C.
  * PB6 = SCL y PB7 = SDA. Esta lectura no cambia el hardware.
  */
@@ -1227,6 +1240,22 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned long)((imu_151_gpio.afrl >> 28U) & 0xFU),
             (unsigned long)((imu_151_gpio.idr >> 6U) & 0x1U),
             (unsigned long)((imu_151_gpio.idr >> 7U) & 0x1U));
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* USV 15.2: reloj y temporizacion efectivos, sin sondeos extra. */
+        len = snprintf(
+            texto, sizeof(texto),
+            ">imu_152_pclk1_hz:%lu\r\n"
+            ">imu_152_timingr:%lu\r\n"
+            ">imu_152_timing_ok:%u\r\n"
+            ">imu_152_pclk_ok:%u\r\n",
+            (unsigned long)imu_152_pclk1_hz,
+            (unsigned long)imu_152_timingr,
+            (unsigned int)(imu_152_timingr == USV_I2C1_TIMING_100KHZ),
+            (unsigned int)(imu_152_pclk1_hz == 64000000U));
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
             uartx_write_text(&huart6, texto);
@@ -1953,7 +1982,14 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x00602173;
+  /* USV 15.2: solo cambiar TIMINGR I2C1 para velocidad estandar.
+   * Referencia 15.1: 0x00602173 (Fast mode ~400 kHz).
+   * 64 MHz de I2C1 (PCLK1), tr=300 ns, tf=100 ns,
+   * filtro analogico activado y filtro digital en cero.
+   * PRESC=3, SCLDEL=9, SDADEL=2, SCLH=0x40, SCLL=0x56.
+   * Frecuencia teorica aproximada: 99.4 kHz (depende de tr/tf reales).
+   */
+  hi2c1.Init.Timing = USV_I2C1_TIMING_100KHZ;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
