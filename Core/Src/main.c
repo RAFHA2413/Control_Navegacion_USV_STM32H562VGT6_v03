@@ -918,6 +918,66 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             uartx_write_text(&huart6, texto);
         }
 
+        /* USV 14.8: traza de pruebas HAL 0x4A y 0x4B; solo RAM. */
+        len = snprintf(
+            texto, sizeof(texto),
+            ">imu_148_cr1:%lu\r\n"
+            ">imu_148_cr2:%lu\r\n"
+            ">imu_148_timingr:%lu\r\n"
+            ">imu_148_pe:%u\r\n"
+            ">imu_148_addrmode:%lu\r\n"
+            ">imu_148_4a_s1:%u\r\n"
+            ">imu_148_4a_s2:%u\r\n"
+            ">imu_148_4a_s3:%u\r\n"
+            ">imu_148_4b_s1:%u\r\n"
+            ">imu_148_4b_s2:%u\r\n"
+            ">imu_148_4b_s3:%u\r\n",
+            (unsigned long)imu_diag_arranque.cr1_inicio,
+            (unsigned long)imu_diag_arranque.cr2_inicio,
+            (unsigned long)imu_diag_arranque.timingr_inicio,
+            (unsigned int)((imu_diag_arranque.cr1_inicio & I2C_CR1_PE) != 0U),
+            (unsigned long)imu_diag_arranque.addressing_mode,
+            (unsigned int)imu_diag_arranque.probe_hal[0][0],
+            (unsigned int)imu_diag_arranque.probe_hal[0][1],
+            (unsigned int)imu_diag_arranque.probe_hal[0][2],
+            (unsigned int)imu_diag_arranque.probe_hal[1][0],
+            (unsigned int)imu_diag_arranque.probe_hal[1][1],
+            (unsigned int)imu_diag_arranque.probe_hal[1][2]);
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+        len = snprintf(
+            texto, sizeof(texto),
+            ">imu_148_4a_e1:%lu\r\n"
+            ">imu_148_4a_e2:%lu\r\n"
+            ">imu_148_4a_e3:%lu\r\n"
+            ">imu_148_4b_e1:%lu\r\n"
+            ">imu_148_4b_e2:%lu\r\n"
+            ">imu_148_4b_e3:%lu\r\n"
+            ">imu_148_4a_t1:%lu\r\n"
+            ">imu_148_4a_t2:%lu\r\n"
+            ">imu_148_4a_t3:%lu\r\n"
+            ">imu_148_4b_t1:%lu\r\n"
+            ">imu_148_4b_t2:%lu\r\n"
+            ">imu_148_4b_t3:%lu\r\n",
+            (unsigned long)imu_diag_arranque.probe_error[0][0],
+            (unsigned long)imu_diag_arranque.probe_error[0][1],
+            (unsigned long)imu_diag_arranque.probe_error[0][2],
+            (unsigned long)imu_diag_arranque.probe_error[1][0],
+            (unsigned long)imu_diag_arranque.probe_error[1][1],
+            (unsigned long)imu_diag_arranque.probe_error[1][2],
+            (unsigned long)imu_diag_arranque.probe_duracion_ms[0][0],
+            (unsigned long)imu_diag_arranque.probe_duracion_ms[0][1],
+            (unsigned long)imu_diag_arranque.probe_duracion_ms[0][2],
+            (unsigned long)imu_diag_arranque.probe_duracion_ms[1][0],
+            (unsigned long)imu_diag_arranque.probe_duracion_ms[1][1],
+            (unsigned long)imu_diag_arranque.probe_duracion_ms[1][2]);
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
         /* Bloque 3: estado de recepcion GNSS. */
         len = snprintf(
             texto,
