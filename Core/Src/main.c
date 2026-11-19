@@ -155,6 +155,31 @@ static USV_IMU151_GPIO imu_151_gpio;
 static uint32_t imu_152_pclk1_hz = 0U;
 static uint32_t imu_152_timingr = 0U;
 
+/* USV 15.3: comprobacion I2C por software independiente de HAL.
+ * Se ejecuta una sola vez durante el arranque. PB6=SCL y PB7=SDA.
+ * Estado: 0=no consultado; 1=ACK; 2=NACK; 3=lineas no libres;
+ * 4=SCL no sube/clock stretch supera 2 ms; 5=contador DWT no disponible;
+ * 6=I2C1 HAL ocupado; 7=STOP incompleto.
+ */
+typedef struct
+{
+    uint8_t estado;
+    uint8_t nivel_ack;       /* SDA en noveno pulso: 0=ACK, 1=NACK, 255=sin dato */
+    uint8_t nivel_final;     /* bit0=SCL/PB6, bit1=SDA/PB7 */
+    uint8_t estiramientos;   /* cantidad de pulsos SCL con espera detectable */
+    uint32_t duracion_ms;
+} USV_IMU153_Resultado;
+static USV_IMU153_Resultado imu_153_4a;
+static USV_IMU153_Resultado imu_153_4b;
+static uint32_t imu_153_hclk_hz = 0U;
+static uint32_t imu_153_tick_inicio = 0U;
+static uint32_t imu_153_cr1_antes = 0U;
+static uint32_t imu_153_cr1_despues = 0U;
+static uint8_t imu_153_gpio_restaurado = 0U;
+static uint8_t imu_153_periferico_restaurado = 0U;
+static uint8_t imu_153_bus_libre = 0U;
+static uint8_t imu_153_habilitar_hw = 0U;
+
 float imu_roll = 0.0f;
 float imu_pitch = 0.0f;
 float imu_yaw = 0.0f;
@@ -607,6 +632,285 @@ static uint8_t USV_IMU150_ProbarDireccion(uint8_t direccion7,
     return (resultado->estado == 1U || resultado->estado == 2U) ? 1U : 0U;
 }
 
+
+/* USV 15.3. Sondeo de direccion I2C por GPIO (sin transferencias HAL).
+ * Retardos basados en DWT CYCCNT, 8 us por semiperiodo. No se
+ * deshabilitan interrupciones ni se alteran pines distintos de PB6/PB7.
+ */
+#define USV_153_SCL GPIO_PIN_6
+#define USV_153_SDA GPIO_PIN_7
+#define USV_153_PINS (USV_153_SCL | USV_153_SDA)
+#define USV_153_MODO_MASK ((3UL << 12U) | (3UL << 14U))
+#define USV_153_AF_MASK ((15UL << 24U) | (15UL << 28U))
+
+static uint32_t imu_153_ciclos_us = 0U;
+
+static void USV_IMU153_DemoraUs(uint32_t microsegundos)
+{
+    uint32_t comienzo = DWT->CYCCNT;
+    uint32_t plazo = microsegundos * imu_153_ciclos_us;
+    /* El segundo limite evita un lazo infinito si CYCCNT se detiene. */
+    uint32_t limite_tick = HAL_GetTick();
+    while ((uint32_t)(DWT->CYCCNT - comienzo) < plazo)
+    {
+        if ((uint32_t)(HAL_GetTick() - limite_tick) >= 10U)
+        {
+            break;
+        }
+    }
+}
+
+static uint8_t USV_IMU153_Niveles(void)
+{
+    uint32_t idr = GPIOB->IDR;
+    return (uint8_t)(((idr >> 6U) & 1U) | (((idr >> 7U) & 1U) << 1U));
+}
+
+static uint8_t USV_IMU153_LiberarSCL(uint8_t *estiramientos)
+{
+    uint32_t comienzo;
+    GPIOB->BSRR = USV_153_SCL; /* OD en 1: liberar linea */
+    comienzo = DWT->CYCCNT;
+    while ((GPIOB->IDR & USV_153_SCL) == 0U)
+    {
+        if ((uint32_t)(DWT->CYCCNT - comienzo) >= (imu_153_ciclos_us * 2000U))
+        {
+            return 0U; /* clock stretch o linea retenida */
+        }
+    }
+    if ((estiramientos != NULL) &&
+        ((uint32_t)(DWT->CYCCNT - comienzo) > imu_153_ciclos_us))
+    {
+        (*estiramientos)++;
+    }
+    USV_IMU153_DemoraUs(8U);
+    return 1U;
+}
+
+static void USV_IMU153_BajarSCL(void)
+{
+    GPIOB->BSRR = (uint32_t)USV_153_SCL << 16U;
+    USV_IMU153_DemoraUs(8U);
+}
+
+static void USV_IMU153_Sondear(uint8_t dir7, USV_IMU153_Resultado *resultado)
+{
+    uint8_t bitn;
+    uint8_t dato = (uint8_t)(dir7 << 1U); /* R/W=0, consulta de escritura */
+    uint32_t inicio = HAL_GetTick();
+    uint8_t proceso_ok = 1U;
+    resultado->estado = 0U;
+    resultado->nivel_ack = 255U;
+
+    if (USV_IMU153_Niveles() != 3U)
+    {
+        resultado->estado = 3U;
+        goto terminar;
+    }
+
+    /* START: SDA baja con SCL alta. */
+    GPIOB->BSRR = (uint32_t)USV_153_SDA << 16U;
+    USV_IMU153_DemoraUs(8U);
+    USV_IMU153_BajarSCL();
+
+    for (bitn = 0U; bitn < 8U; bitn++)
+    {
+        if ((dato & (uint8_t)(0x80U >> bitn)) != 0U)
+        {
+            GPIOB->BSRR = USV_153_SDA;
+        }
+        else
+        {
+            GPIOB->BSRR = (uint32_t)USV_153_SDA << 16U;
+        }
+        USV_IMU153_DemoraUs(8U);
+        if (USV_IMU153_LiberarSCL(&resultado->estiramientos) == 0U)
+        {
+            resultado->estado = 4U;
+            proceso_ok = 0U;
+            break;
+        }
+        USV_IMU153_BajarSCL();
+    }
+
+    if (proceso_ok != 0U)
+    {
+        /* Noveno pulso: soltar SDA y leer ACK con SCL alta. */
+        GPIOB->BSRR = USV_153_SDA;
+        USV_IMU153_DemoraUs(8U);
+        if (USV_IMU153_LiberarSCL(&resultado->estiramientos) == 0U)
+        {
+            resultado->estado = 4U;
+        }
+        else
+        {
+            resultado->nivel_ack =
+                ((GPIOB->IDR & USV_153_SDA) != 0U) ? 1U : 0U;
+            resultado->estado = (resultado->nivel_ack == 0U) ? 1U : 2U;
+            USV_IMU153_BajarSCL();
+        }
+    }
+
+    /* STOP (cuando SCL pueda liberarse): SDA baja, SCL alta, SDA alta. */
+    GPIOB->BSRR = (uint32_t)USV_153_SDA << 16U;
+    USV_IMU153_DemoraUs(8U);
+    if (USV_IMU153_LiberarSCL(NULL) != 0U)
+    {
+        GPIOB->BSRR = USV_153_SDA;
+        USV_IMU153_DemoraUs(8U);
+    }
+    else
+    {
+        GPIOB->BSRR = USV_153_SDA;
+        if (resultado->estado == 1U || resultado->estado == 2U)
+        {
+            resultado->estado = 7U;
+        }
+    }
+
+terminar:
+    /* Siempre liberar ambas lineas antes de restaurar AF4. */
+    GPIOB->BSRR = USV_153_PINS;
+    USV_IMU153_DemoraUs(8U);
+    resultado->nivel_final = USV_IMU153_Niveles();
+    if (resultado->nivel_final != 3U &&
+        (resultado->estado == 1U || resultado->estado == 2U))
+    {
+        resultado->estado = 7U;
+    }
+    resultado->duracion_ms = HAL_GetTick() - inicio;
+}
+
+static void USV_IMU153_ProbarAmbas(void)
+{
+    uint32_t moder, otyper, ospeedr, pupdr, afrl, odr, cr1;
+    uint32_t dwt_ctrl_antes, demcr_antes, avance;
+    uint8_t resultados_completos = 0U;
+
+    memset(&imu_153_4a, 0, sizeof(imu_153_4a));
+    memset(&imu_153_4b, 0, sizeof(imu_153_4b));
+    imu_153_hclk_hz = HAL_RCC_GetHCLKFreq();
+    imu_153_tick_inicio = HAL_GetTick();
+    imu_153_gpio_restaurado = 0U;
+    imu_153_periferico_restaurado = 0U;
+    imu_153_bus_libre = 0U;
+    imu_153_habilitar_hw = 0U;
+
+    if ((HAL_I2C_GetState(&hi2c1) != HAL_I2C_STATE_READY) ||
+        ((hi2c1.Instance->ISR & I2C_ISR_BUSY) != 0U) ||
+        ((hi2c1.Instance->CR1 & I2C_CR1_PE) == 0U))
+    {
+        imu_153_4a.estado = 6U;
+        return;
+    }
+
+    imu_153_ciclos_us = imu_153_hclk_hz / 1000000U;
+    if (imu_153_ciclos_us == 0U)
+    {
+        imu_153_4a.estado = 5U;
+        return;
+    }
+    demcr_antes = CoreDebug->DEMCR;
+    dwt_ctrl_antes = DWT->CTRL;
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    avance = DWT->CYCCNT;
+    for (volatile uint32_t n = 0U; n < 1000U; n++)
+    {
+        __NOP();
+    }
+    if (DWT->CYCCNT == avance)
+    {
+        imu_153_4a.estado = 5U;
+        /* No hubo modificaciones de I2C1 ni de GPIOB. */
+        DWT->CTRL = dwt_ctrl_antes;
+        CoreDebug->DEMCR = demcr_antes;
+        return;
+    }
+
+    /* Conservar la configuracion EXACTA de PB6/PB7 y la habilitacion PE. */
+    moder = GPIOB->MODER;
+    otyper = GPIOB->OTYPER;
+    ospeedr = GPIOB->OSPEEDR;
+    pupdr = GPIOB->PUPDR;
+    afrl = GPIOB->AFR[0];
+    odr = GPIOB->ODR;
+    cr1 = hi2c1.Instance->CR1;
+    imu_153_cr1_antes = cr1;
+
+    hi2c1.Instance->CR1 &= ~I2C_CR1_PE;
+    GPIOB->BSRR = USV_153_PINS; /* ODR=1 antes de pasar a GPIO */
+    GPIOB->OTYPER |= USV_153_PINS; /* ambas open drain */
+    GPIOB->PUPDR = (GPIOB->PUPDR & ~USV_153_MODO_MASK) |
+                   (1UL << 12U) | (1UL << 14U);
+    GPIOB->MODER = (GPIOB->MODER & ~USV_153_MODO_MASK) |
+                   (1UL << 12U) | (1UL << 14U); /* salidas GPIO */
+    USV_IMU153_DemoraUs(30U);
+
+    if (USV_IMU153_Niveles() == 3U)
+    {
+        USV_IMU153_Sondear(0x4AU, &imu_153_4a);
+        if (imu_153_4a.estado == 1U || imu_153_4a.estado == 2U)
+        {
+            USV_IMU153_DemoraUs(30U);
+            USV_IMU153_Sondear(0x4BU, &imu_153_4b);
+        }
+    }
+    else
+    {
+        imu_153_4a.estado = 3U;
+        imu_153_4a.nivel_final = USV_IMU153_Niveles();
+    }
+    resultados_completos =
+        (uint8_t)((imu_153_4a.estado == 1U || imu_153_4a.estado == 2U) &&
+                  (imu_153_4b.estado == 1U || imu_153_4b.estado == 2U));
+
+    /* Liberar bus, restaurar AF4 y el resto de valores originales, sin
+     * tocar ningun bit GPIOB que pertenezca a los otros subsistemas.
+     */
+    GPIOB->BSRR = USV_153_PINS;
+    USV_IMU153_DemoraUs(30U);
+    imu_153_bus_libre = (USV_IMU153_Niveles() == 3U) ? 1U : 0U;
+    GPIOB->MODER = (GPIOB->MODER & ~USV_153_MODO_MASK) |
+                   (moder & USV_153_MODO_MASK);
+    GPIOB->AFR[0] = (GPIOB->AFR[0] & ~USV_153_AF_MASK) |
+                    (afrl & USV_153_AF_MASK);
+    GPIOB->OSPEEDR = (GPIOB->OSPEEDR & ~USV_153_MODO_MASK) |
+                     (ospeedr & USV_153_MODO_MASK);
+    GPIOB->PUPDR = (GPIOB->PUPDR & ~USV_153_MODO_MASK) |
+                   (pupdr & USV_153_MODO_MASK);
+    GPIOB->OTYPER = (GPIOB->OTYPER & ~USV_153_PINS) |
+                    (otyper & USV_153_PINS);
+    /* El latch ODR no gobierna las lineas mientras estan en AF. */
+    GPIOB->BSRR = (odr & USV_153_PINS) |
+                  ((~odr & USV_153_PINS) << 16U);
+    imu_153_gpio_restaurado =
+       (uint8_t)((((GPIOB->MODER ^ moder) & USV_153_MODO_MASK) == 0U) &&
+                 (((GPIOB->AFR[0] ^ afrl) & USV_153_AF_MASK) == 0U) &&
+                 (((GPIOB->OSPEEDR ^ ospeedr) & USV_153_MODO_MASK) == 0U) &&
+                 (((GPIOB->PUPDR ^ pupdr) & USV_153_MODO_MASK) == 0U) &&
+                 (((GPIOB->OTYPER ^ otyper) & USV_153_PINS) == 0U));
+
+    if ((cr1 & I2C_CR1_PE) != 0U)
+    {
+        hi2c1.Instance->CR1 |= I2C_CR1_PE;
+    }
+    imu_153_cr1_despues = hi2c1.Instance->CR1;
+    imu_153_periferico_restaurado =
+        (uint8_t)((imu_153_cr1_despues & I2C_CR1_PE) ==
+                  (cr1 & I2C_CR1_PE));
+    /* Restituir estado del contador de ciclos y la habilitacion de trace. */
+    DWT->CTRL = dwt_ctrl_antes;
+    CoreDebug->DEMCR = demcr_antes;
+
+    imu_153_habilitar_hw =
+        (uint8_t)(resultados_completos != 0U &&
+                  imu_153_bus_libre != 0U &&
+                  imu_153_gpio_restaurado != 0U &&
+                  imu_153_periferico_restaurado != 0U &&
+                  (hi2c1.Instance->ISR & I2C_ISR_BUSY) == 0U);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -747,11 +1051,18 @@ imu_151_gpio.pupdr = GPIOB->PUPDR;
 imu_151_gpio.afrl = GPIOB->AFR[0];
 imu_151_gpio.idr = GPIOB->IDR;
 
+/* USV 15.3: probar primero direccion I2C mediante GPIO. Se restaura
+ * I2C1/PB6/PB7 antes del diagnostico por hardware de USV 15.0.
+ * Si falla la restauracion o el STOP, no encadenar consultas.
+ */
+USV_IMU153_ProbarAmbas();
+
 /* USV 15.0: dos sondeos directos antes de HAL_I2C_IsDeviceReady.
  * Si 0x4A no libera bus, omitir 0x4B y conservar el diagnostico.
  */
 imu_150_pe_inicial = (hi2c1.Instance->CR1 & I2C_CR1_PE) != 0U;
-if (USV_IMU150_ProbarDireccion(0x4AU, &imu_150_4a) != 0U)
+if ((imu_153_habilitar_hw != 0U) &&
+    (USV_IMU150_ProbarDireccion(0x4AU, &imu_150_4a) != 0U))
 {
     imu_150_bus_seguro = USV_IMU150_ProbarDireccion(0x4BU, &imu_150_4b);
 }
@@ -1256,6 +1567,56 @@ ADC_Read_DMA(&hadc1, 3U, adc1_codigo);
             (unsigned long)imu_152_timingr,
             (unsigned int)(imu_152_timingr == USV_I2C1_TIMING_100KHZ),
             (unsigned int)(imu_152_pclk1_hz == 64000000U));
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+
+        /* USV 15.3: sondeos GPIO I2C capturados durante arranque. */
+        len = snprintf(
+            texto, sizeof(texto),
+            ">imu_153_hclk_hz:%lu\r\n"
+            ">imu_153_tick_inicio:%lu\r\n"
+            ">imu_153_4a_estado:%u\r\n"
+            ">imu_153_4a_sda_ack:%u\r\n"
+            ">imu_153_4a_final:%u\r\n"
+            ">imu_153_4a_stretch:%u\r\n"
+            ">imu_153_4a_ms:%lu\r\n"
+            ">imu_153_4b_estado:%u\r\n"
+            ">imu_153_4b_sda_ack:%u\r\n"
+            ">imu_153_4b_final:%u\r\n"
+            ">imu_153_4b_stretch:%u\r\n"
+            ">imu_153_4b_ms:%lu\r\n",
+            (unsigned long)imu_153_hclk_hz,
+            (unsigned long)imu_153_tick_inicio,
+            (unsigned int)imu_153_4a.estado,
+            (unsigned int)imu_153_4a.nivel_ack,
+            (unsigned int)imu_153_4a.nivel_final,
+            (unsigned int)imu_153_4a.estiramientos,
+            (unsigned long)imu_153_4a.duracion_ms,
+            (unsigned int)imu_153_4b.estado,
+            (unsigned int)imu_153_4b.nivel_ack,
+            (unsigned int)imu_153_4b.nivel_final,
+            (unsigned int)imu_153_4b.estiramientos,
+            (unsigned long)imu_153_4b.duracion_ms);
+        if ((len > 0) && ((size_t)len < sizeof(texto)))
+        {
+            uartx_write_text(&huart6, texto);
+        }
+        len = snprintf(
+            texto, sizeof(texto),
+            ">imu_153_gpio_restaurado:%u\r\n"
+            ">imu_153_perif_restaurado:%u\r\n"
+            ">imu_153_bus_libre:%u\r\n"
+            ">imu_153_habilitar_hw:%u\r\n"
+            ">imu_153_cr1_antes:%lu\r\n"
+            ">imu_153_cr1_despues:%lu\r\n",
+            (unsigned int)imu_153_gpio_restaurado,
+            (unsigned int)imu_153_periferico_restaurado,
+            (unsigned int)imu_153_bus_libre,
+            (unsigned int)imu_153_habilitar_hw,
+            (unsigned long)imu_153_cr1_antes,
+            (unsigned long)imu_153_cr1_despues);
         if ((len > 0) && ((size_t)len < sizeof(texto)))
         {
             uartx_write_text(&huart6, texto);
