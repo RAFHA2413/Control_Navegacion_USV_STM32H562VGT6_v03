@@ -39,6 +39,14 @@ typedef struct
     uint32_t estado_i2c;
     uint32_t modo_i2c;
     uint32_t isr_final;
+    /* USV 14.8: 0=OK, 1=ERROR, 2=BUSY, 3=TIMEOUT; 255=sin intento. */
+    uint8_t probe_hal[2][3];
+    uint32_t probe_error[2][3];
+    uint32_t probe_duracion_ms[2][3];
+    uint32_t cr1_inicio;
+    uint32_t cr2_inicio;
+    uint32_t timingr_inicio;
+    uint32_t addressing_mode;
 } IMU_Diagnostico;
 
 uint8_t IMU_Init(void);
