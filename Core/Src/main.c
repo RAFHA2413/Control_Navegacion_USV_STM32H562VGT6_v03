@@ -669,11 +669,15 @@ static uint8_t USV_IMU153_Niveles(void)
 static uint8_t USV_IMU153_LiberarSCL(uint8_t *estiramientos)
 {
     uint32_t comienzo;
+    uint32_t inicio_tick;
     GPIOB->BSRR = USV_153_SCL; /* OD en 1: liberar linea */
     comienzo = DWT->CYCCNT;
+    inicio_tick = HAL_GetTick();
     while ((GPIOB->IDR & USV_153_SCL) == 0U)
     {
-        if ((uint32_t)(DWT->CYCCNT - comienzo) >= (imu_153_ciclos_us * 2000U))
+        if (((uint32_t)(DWT->CYCCNT - comienzo) >=
+             (imu_153_ciclos_us * 2000U)) ||
+            ((uint32_t)(HAL_GetTick() - inicio_tick) >= 4U))
         {
             return 0U; /* clock stretch o linea retenida */
         }
@@ -789,6 +793,9 @@ static void USV_IMU153_ProbarAmbas(void)
 
     memset(&imu_153_4a, 0, sizeof(imu_153_4a));
     memset(&imu_153_4b, 0, sizeof(imu_153_4b));
+    /* Si una direccion no se consulta, no confundir 0 con ACK. */
+    imu_153_4a.nivel_ack = 255U;
+    imu_153_4b.nivel_ack = 255U;
     imu_153_hclk_hz = HAL_RCC_GetHCLKFreq();
     imu_153_tick_inicio = HAL_GetTick();
     imu_153_gpio_restaurado = 0U;
