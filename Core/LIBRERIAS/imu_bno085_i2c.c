@@ -61,6 +61,8 @@ static uint16_t bno085_addr_hal = 0U;
 static uint8_t shtp_sequence[6] = {0U, 0U, 0U, 0U, 0U, 0U};
 static uint8_t shtp_payload[IMU_PAYLOAD_BUFFER_SIZE];
 static uint8_t imu_initialized = 0U;
+/* Instantanea de las etapas de arranque; no ejecuta sondeos adicionales. */
+static IMU_Diagnostico imu_diagnostico;
 
 /* ------------------------------------------------------------------------- */
 /* Utilidades SHTP                                                           */
@@ -347,63 +349,68 @@ static uint8_t IMU_QuaternionToEuler(
 
 uint8_t IMU_Init(void)
 {
+    HAL_StatusTypeDef estado;
+
     imu_initialized = 0U;
     bno085_addr_hal = 0U;
     memset(shtp_sequence, 0, sizeof(shtp_sequence));
+    memset(&imu_diagnostico, 0, sizeof(imu_diagnostico));
+    imu_diagnostico.etapa = 1U;       /* Busqueda de direccion. */
+    imu_diagnostico.estado_4a = 255U; /* No consultada. */
+    imu_diagnostico.estado_4b = 255U; /* No consultada. */
 
     /*
-     * Prueba 14.5: tolerar retardo de arranque del BNO085.
-     * Hasta tres barridos breves de 0x4A/0x4B, SOLO en el arranque.
-     * Sin busqueda recurrente en el lazo principal para no introducir
-     * retardos en la comunicacion XBee ni en el failsafe.
+     * USV 14.6: restaurar UNICAMENTE la deteccion usada en USV 11.2:
+     * 0x4A y, si no responde, 0x4B; 3 intentos y 100 ms por llamada.
+     * Solo se ejecuta una vez durante el arranque, sin sondeos en while(1).
+     * Se mantienen los timeouts de transferencias SHTP de 14.5 (20 ms).
      */
-    for (uint8_t intento = 0U; intento < 3U; ++intento)
-    {
-        if (HAL_I2C_IsDeviceReady(
-                &hi2c1,
-                BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT),
-                1U,
-                20U) == HAL_OK)
-        {
-            bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT);
-            break;
-        }
+    estado = HAL_I2C_IsDeviceReady(
+        &hi2c1, BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT), 3U, 100U);
+    imu_diagnostico.estado_4a = (uint8_t)estado;
+    imu_diagnostico.error_4a = HAL_I2C_GetError(&hi2c1);
 
-        if (HAL_I2C_IsDeviceReady(
-                &hi2c1,
-                BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT),
-                1U,
-                20U) == HAL_OK)
+    if (estado == HAL_OK)
+    {
+        bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT);
+    }
+    else
+    {
+        estado = HAL_I2C_IsDeviceReady(
+            &hi2c1, BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT), 3U, 100U);
+        imu_diagnostico.estado_4b = (uint8_t)estado;
+        imu_diagnostico.error_4b = HAL_I2C_GetError(&hi2c1);
+
+        if (estado == HAL_OK)
         {
             bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT);
-            break;
-        }
-
-        if (intento < 2U)
-        {
-            HAL_Delay(100U);
         }
     }
 
     if (bno085_addr_hal == 0U)
     {
+        imu_diagnostico.etapa = 2U; /* Sin dispositivo reconocido. */
+        imu_diagnostico.error_etapa = HAL_I2C_GetError(&hi2c1);
         return 0U;
     }
 
     /*
-     * Se evita un soft-reset adicional aqui. El sensor ya esta operativo
-     * cuando responde a IsDeviceReady y un reset extra puede dejar paquetes
-     * de arranque pendientes delante de los reportes de orientacion.
+     * Sin soft-reset adicional, igual que en 11.2 y 14.5.
+     * No se modifica el protocolo SHTP ni el intervalo de 20 Hz.
      */
     HAL_Delay(50U);
 
+    imu_diagnostico.etapa = 3U; /* Esperando Product ID. */
     if (IMU_CheckProductID() == 0U)
     {
+        imu_diagnostico.error_etapa = HAL_I2C_GetError(&hi2c1);
         return 0U;
     }
 
+    imu_diagnostico.etapa = 4U; /* Habilitando Rotation Vector. */
     if (IMU_EnableRotationVector() == 0U)
     {
+        imu_diagnostico.error_etapa = HAL_I2C_GetError(&hi2c1);
         return 0U;
     }
 
@@ -411,6 +418,8 @@ uint8_t IMU_Init(void)
     HAL_Delay(100U);
 
     imu_initialized = 1U;
+    imu_diagnostico.etapa = 5U;
+    imu_diagnostico.error_etapa = 0U;
     return 1U;
 }
 
@@ -512,4 +521,12 @@ uint8_t IMU_GetAddress7bit(void)
     }
 
     return (uint8_t)(bno085_addr_hal >> 1U);
+}
+
+void IMU_GetDiagnostico(IMU_Diagnostico *destino)
+{
+    if (destino != NULL)
+    {
+        *destino = imu_diagnostico;
+    }
 }
