@@ -358,6 +358,7 @@ uint8_t IMU_Init(void)
     imu_diagnostico.etapa = 1U;       /* Busqueda de direccion. */
     imu_diagnostico.estado_4a = 255U; /* No consultada. */
     imu_diagnostico.estado_4b = 255U; /* No consultada. */
+    imu_diagnostico.isr_inicial = hi2c1.Instance->ISR;
 
     /*
      * USV 14.6: restaurar UNICAMENTE la deteccion usada en USV 11.2:
@@ -367,6 +368,7 @@ uint8_t IMU_Init(void)
      */
     estado = HAL_I2C_IsDeviceReady(
         &hi2c1, BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT), 3U, 100U);
+    imu_diagnostico.isr_4a = hi2c1.Instance->ISR;
     imu_diagnostico.estado_4a = (uint8_t)estado;
     imu_diagnostico.error_4a = HAL_I2C_GetError(&hi2c1);
 
@@ -378,6 +380,7 @@ uint8_t IMU_Init(void)
     {
         estado = HAL_I2C_IsDeviceReady(
             &hi2c1, BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT), 3U, 100U);
+        imu_diagnostico.isr_4b = hi2c1.Instance->ISR;
         imu_diagnostico.estado_4b = (uint8_t)estado;
         imu_diagnostico.error_4b = HAL_I2C_GetError(&hi2c1);
 
@@ -386,6 +389,11 @@ uint8_t IMU_Init(void)
             bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT);
         }
     }
+
+    /* Instantanea al finalizar deteccion; sin sondeos adicionales. */
+    imu_diagnostico.isr_final = hi2c1.Instance->ISR;
+    imu_diagnostico.estado_i2c = (uint32_t)HAL_I2C_GetState(&hi2c1);
+    imu_diagnostico.modo_i2c = (uint32_t)HAL_I2C_GetMode(&hi2c1);
 
     if (bno085_addr_hal == 0U)
     {
