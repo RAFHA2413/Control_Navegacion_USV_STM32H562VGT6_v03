@@ -33,6 +33,12 @@ typedef struct
     uint32_t error_4a;
     uint32_t error_4b;
     uint32_t error_etapa;
+    uint32_t isr_inicial;
+    uint32_t isr_4a;
+    uint32_t isr_4b;
+    uint32_t estado_i2c;
+    uint32_t modo_i2c;
+    uint32_t isr_final;
 } IMU_Diagnostico;
 
 uint8_t IMU_Init(void);
