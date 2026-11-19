@@ -365,6 +365,7 @@ uint8_t IMU_Init(void)
      * Solo se ejecuta una vez durante el arranque, sin sondeos en while(1).
      * Se mantienen los timeouts de transferencias SHTP de 14.5 (20 ms).
      */
+    imu_diagnostico.intentos_max_4a = 3U;
     estado = HAL_I2C_IsDeviceReady(
         &hi2c1, BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT), 3U, 100U);
     imu_diagnostico.estado_4a = (uint8_t)estado;
@@ -376,6 +377,7 @@ uint8_t IMU_Init(void)
     }
     else
     {
+        imu_diagnostico.intentos_max_4b = 3U;
         estado = HAL_I2C_IsDeviceReady(
             &hi2c1, BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT), 3U, 100U);
         imu_diagnostico.estado_4b = (uint8_t)estado;
