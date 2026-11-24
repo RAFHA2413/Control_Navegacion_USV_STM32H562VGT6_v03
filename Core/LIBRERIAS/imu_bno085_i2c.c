@@ -351,21 +351,26 @@ uint8_t IMU_Init(void)
     bno085_addr_hal = 0U;
     memset(shtp_sequence, 0, sizeof(shtp_sequence));
 
+    /*
+     * Prueba USV v14.2 - IMU BNO085:
+     * El escaneo externo confirmo 0x4B. Consultar esa direccion primero
+     * y conservar 0x4A como alternativa sin modificar otros subsistemas.
+     */
     if (HAL_I2C_IsDeviceReady(
             &hi2c1,
-            BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT),
+            BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT),
             3U,
             100U) == HAL_OK)
     {
-        bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT);
+        bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT);
     }
     else if (HAL_I2C_IsDeviceReady(
                  &hi2c1,
-                 BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT),
+                 BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT),
                  3U,
                  100U) == HAL_OK)
     {
-        bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4B_7BIT);
+        bno085_addr_hal = BNO085_ADDR_HAL(BNO085_ADDR_4A_7BIT);
     }
     else
     {
